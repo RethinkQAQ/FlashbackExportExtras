@@ -21,10 +21,14 @@ import java.util.List;
 /**
  * Multi-layer OpenEXR writer using LWJGL tinyexr bindings.
  * Same approach as ReplayMod — SaveEXRImageToFile with EXRHeader/EXRImage.
+ *
+ * Perf: All native buffers and EXR structs are pre-allocated once and reused
+ * across frames to eliminate per-frame allocation overhead (~40MB/frame).
  */
 public class MultiLayerExrWriter implements AutoCloseable {
 
     private static final int NUM_CHANNELS = 5;
+    private static final float INV_255 = 1.0f / 255.0f;
 
     // ReplayMod-proven order: A, B, G, R (matches BGRA pixel data layout)
     private static final String[] CHANNEL_NAMES = {
@@ -40,6 +44,19 @@ public class MultiLayerExrWriter implements AutoCloseable {
     private final int height;
     private final boolean linearizeDepth;
     private int frameCount;
+    private boolean closed = false;
+
+    // === Pre-allocated pixel buffers (reused every frame) ===
+    private final FloatBuffer rBuf, gBuf, bBuf, aBuf, zBuf;
+
+    // === Pre-allocated EXR data structures ===
+    private final EXRHeader header;
+    private final EXRImage image;
+    private final EXRChannelInfo.Buffer channelInfo;
+    private final IntBuffer pixelTypes;
+    private final IntBuffer requestedTypes;
+    private final PointerBuffer imagePtrs;
+    private final List<ByteBuffer> nameBufs;
 
     public MultiLayerExrWriter(Path outputDir, int width, int height, boolean linearizeDepth) throws IOException {
         this.outputDir = outputDir;
@@ -48,138 +65,163 @@ public class MultiLayerExrWriter implements AutoCloseable {
         this.linearizeDepth = linearizeDepth;
         this.frameCount = 0;
         Files.createDirectories(outputDir);
-    }
 
-    public void writeFrame(NativeImage colorImage, FloatBuffer depthBuffer, int frameNumber) throws IOException {
         int pixelCount = width * height;
 
-        FloatBuffer rBuf = MemoryUtil.memAllocFloat(pixelCount);
-        FloatBuffer gBuf = MemoryUtil.memAllocFloat(pixelCount);
-        FloatBuffer bBuf = MemoryUtil.memAllocFloat(pixelCount);
-        FloatBuffer aBuf = MemoryUtil.memAllocFloat(pixelCount);
-        FloatBuffer zBuf = MemoryUtil.memAllocFloat(pixelCount);
+        // --- Pre-allocate pixel buffers (5 × width × height × 4 bytes) ---
+        this.rBuf = MemoryUtil.memAllocFloat(pixelCount);
+        this.gBuf = MemoryUtil.memAllocFloat(pixelCount);
+        this.bBuf = MemoryUtil.memAllocFloat(pixelCount);
+        this.aBuf = MemoryUtil.memAllocFloat(pixelCount);
+        this.zBuf = MemoryUtil.memAllocFloat(pixelCount);
 
-        try {
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    int idx = y * width + x;
-                    int pixel = colorImage.getPixelRGBA(x, y);
-                    rBuf.put(idx, (pixel & 0xFF) / 255.0f);
-                    gBuf.put(idx, ((pixel >> 8) & 0xFF) / 255.0f);
-                    bBuf.put(idx, ((pixel >> 16) & 0xFF) / 255.0f);
-                    aBuf.put(idx, ((pixel >> 24) & 0xFF) / 255.0f);
-                    // Depth is bottom-up from GL; flip Y to match flipped color
-                    float depth = depthBuffer.get((height - 1 - y) * width + x);
-                    if (linearizeDepth) {
-                        // OpenGL NDC→world-space linearization
-                        float znear = 0.05f;
-                        float zfar = DepthCaptureState.depthFar;
-                        depth = 2.0f * znear * zfar / (zfar + znear - (2.0f * depth - 1.0f) * (zfar - znear));
-                    }
-                    zBuf.put(idx, depth);
-                }
-            }
+        // --- Pre-allocate EXR data structures ---
+        this.header = EXRHeader.calloc();
+        this.image = EXRImage.calloc();
+        this.channelInfo = EXRChannelInfo.calloc(NUM_CHANNELS);
+        this.pixelTypes = MemoryUtil.memAllocInt(NUM_CHANNELS);
+        this.requestedTypes = MemoryUtil.memAllocInt(NUM_CHANNELS);
+        this.imagePtrs = MemoryUtil.memAllocPointer(NUM_CHANNELS);
+        this.nameBufs = new ArrayList<>(NUM_CHANNELS);
 
-            writeExr(rBuf, gBuf, bBuf, aBuf, zBuf, frameNumber);
-        } finally {
-            MemoryUtil.memFree(rBuf);
-            MemoryUtil.memFree(gBuf);
-            MemoryUtil.memFree(bBuf);
-            MemoryUtil.memFree(aBuf);
-            MemoryUtil.memFree(zBuf);
+        // --- Pre-configure immutable channel metadata ---
+        for (int i = 0; i < NUM_CHANNELS; i++) {
+            ByteBuffer nameBuf = MemoryUtil.memUTF8(CHANNEL_NAMES[i]);
+            nameBufs.add(nameBuf);
+            channelInfo.get(i).name(nameBuf);
+            pixelTypes.put(i, TinyEXR.TINYEXR_PIXELTYPE_FLOAT);
+            // RGBA → HALF output; Depth → FLOAT output (ReplayMod pattern)
+            requestedTypes.put(i, (i < 4) ? TinyEXR.TINYEXR_PIXELTYPE_HALF : TinyEXR.TINYEXR_PIXELTYPE_FLOAT);
         }
+        pixelTypes.flip();
+        requestedTypes.flip();
+
+        // --- Pre-set image pointer table (native addresses are stable) ---
+        // Channel order: A, B, G, R, Z
+        imagePtrs.put(0, MemoryUtil.memAddress(aBuf));
+        imagePtrs.put(1, MemoryUtil.memAddress(bBuf));
+        imagePtrs.put(2, MemoryUtil.memAddress(gBuf));
+        imagePtrs.put(3, MemoryUtil.memAddress(rBuf));
+        imagePtrs.put(4, MemoryUtil.memAddress(zBuf));
+        imagePtrs.flip();
+    }
+
+    /**
+     * Writes one multi-layer EXR frame.
+     * Fills pre-allocated buffers with new data, then calls tinyexr.
+     */
+    public void writeFrame(NativeImage colorImage, FloatBuffer depthBuffer, int frameNumber) throws IOException {
+        fillBuffers(colorImage, depthBuffer);
+        writeExr(frameNumber);
         frameCount++;
     }
 
-    private void writeExr(FloatBuffer rBuf, FloatBuffer gBuf, FloatBuffer bBuf,
-                           FloatBuffer aBuf, FloatBuffer zBuf, int frameNumber) throws IOException {
+    /**
+     * Fills the pre-allocated float buffers from NativeImage and depth buffer.
+     *
+     * Uses getPixelsRGBA() for a single bulk copy (one memcpy) instead of
+     * width*height individual JNI calls to getPixelRGBA(x,y).
+     */
+    private void fillBuffers(NativeImage colorImage, FloatBuffer depthBuffer) {
+        float inv255 = INV_255;
+        int pixelCount = width * height;
+
+        // --- Pass 1: Bulk copy pixels, then extract RGBA in pure Java ---
+        int[] pixelArray = colorImage.getPixelsRGBA();
+        for (int i = 0; i < pixelCount; i++) {
+            int pixel = pixelArray[i];
+            // 0xAABBGGRR → individual float channels
+            rBuf.put(i, (pixel & 0xFF) * inv255);
+            gBuf.put(i, ((pixel >> 8) & 0xFF) * inv255);
+            bBuf.put(i, ((pixel >> 16) & 0xFF) * inv255);
+            aBuf.put(i, ((pixel >> 24) & 0xFF) * inv255);
+        }
+
+        // --- Pass 2: Fill depth (Y-flipped from GL bottom-up) ---
+        if (linearizeDepth) {
+            float znear = 0.05f;
+            float zfar = DepthCaptureState.depthFar;
+            float twoZnZf = 2.0f * znear * zfar;
+            float zfMinusZn = zfar - znear;
+            float zfPlusZn = zfar + znear;
+
+            for (int y = 0; y < height; y++) {
+                int dstIdx = y * width;
+                int srcY = height - 1 - y;
+                for (int x = 0; x < width; x++, dstIdx++) {
+                    float depth = depthBuffer.get(srcY * width + x);
+                    depth = twoZnZf / (zfPlusZn - (2.0f * depth - 1.0f) * zfMinusZn);
+                    zBuf.put(dstIdx, depth);
+                }
+            }
+        } else {
+            for (int y = 0; y < height; y++) {
+                int dstIdx = y * width;
+                int srcY = height - 1 - y;
+                for (int x = 0; x < width; x++, dstIdx++) {
+                    zBuf.put(dstIdx, depthBuffer.get(srcY * width + x));
+                }
+            }
+        }
+    }
+
+    /**
+     * Writes the current buffer contents to an EXR file.
+     * Reconfigures header/image each call (Init zeros fields; we re-apply).
+     */
+    private void writeExr(int frameNumber) throws IOException {
         Path filePath = outputDir.resolve(String.format("%04d.exr", frameNumber));
 
-        // Keep references to allocated native memory for cleanup
-        List<ByteBuffer> nameBufs = new ArrayList<>();
-        EXRHeader header = EXRHeader.calloc();
-        EXRImage image = EXRImage.calloc();
-        EXRChannelInfo.Buffer channelInfo = null;
-        IntBuffer pixelTypes = null;
-        IntBuffer requestedTypes = null;
-        PointerBuffer imagePtrs = null;
+        // Reset header/image to zero (InitEXR does memset), then re-apply config
+        TinyEXR.InitEXRHeader(header);
+        TinyEXR.InitEXRImage(image);
 
+        header.channels(channelInfo);
+        header.num_channels(NUM_CHANNELS);
+        header.pixel_types(pixelTypes);
+        header.requested_pixel_types(requestedTypes);
+        header.compression_type(TinyEXR.TINYEXR_COMPRESSIONTYPE_NONE);
+
+        image.width(width);
+        image.height(height);
+        image.num_channels(NUM_CHANNELS);
+        imagePtrs.rewind();
+        image.images(imagePtrs);
+
+        ByteBuffer pathBuf = MemoryUtil.memUTF8(filePath.toAbsolutePath().toString());
+        PointerBuffer err = MemoryUtil.memAllocPointer(1);
         try {
-            TinyEXR.InitEXRHeader(header);
-            TinyEXR.InitEXRImage(image);
-
-            // --- Channel names ---
-            channelInfo = EXRChannelInfo.calloc(NUM_CHANNELS);
-            for (int i = 0; i < NUM_CHANNELS; i++) {
-                ByteBuffer nameBuf = MemoryUtil.memUTF8(CHANNEL_NAMES[i]);
-                nameBufs.add(nameBuf);
-                channelInfo.get(i).name(nameBuf);
-            }
-            header.channels(channelInfo);
-            header.num_channels(NUM_CHANNELS);
-
-            // --- Pixel types ---
-            pixelTypes = MemoryUtil.memAllocInt(NUM_CHANNELS);
-            requestedTypes = MemoryUtil.memAllocInt(NUM_CHANNELS);
-            for (int i = 0; i < NUM_CHANNELS; i++) {
-                pixelTypes.put(i, TinyEXR.TINYEXR_PIXELTYPE_FLOAT);
-                // RGBA channels: HALF output; Depth: FLOAT output (ReplayMod pattern)
-                requestedTypes.put(i, (i < 4) ? TinyEXR.TINYEXR_PIXELTYPE_HALF : TinyEXR.TINYEXR_PIXELTYPE_FLOAT);
-            }
-            pixelTypes.flip();
-            requestedTypes.flip();
-            header.pixel_types(pixelTypes);
-            header.requested_pixel_types(requestedTypes);
-
-            // --- Compression ---
-            header.compression_type(TinyEXR.TINYEXR_COMPRESSIONTYPE_NONE);
-
-            // --- Image ---
-            image.width(width);
-            image.height(height);
-            image.num_channels(NUM_CHANNELS);
-
-            // --- Image channel data pointers ---
-            imagePtrs = MemoryUtil.memAllocPointer(NUM_CHANNELS);
-
-            imagePtrs = MemoryUtil.memAllocPointer(NUM_CHANNELS);
-            // A, B, G, R order — matches ReplayMod's proven channel layout
-            imagePtrs.put(0, MemoryUtil.memAddress(aBuf));
-            imagePtrs.put(1, MemoryUtil.memAddress(bBuf));
-            imagePtrs.put(2, MemoryUtil.memAddress(gBuf));
-            imagePtrs.put(3, MemoryUtil.memAddress(rBuf));
-            imagePtrs.put(4, MemoryUtil.memAddress(zBuf));
-            imagePtrs.flip();
-            image.images(imagePtrs);
-
-            // --- Write ---
-            ByteBuffer pathBuf = MemoryUtil.memUTF8(filePath.toAbsolutePath().toString());
-            PointerBuffer err = MemoryUtil.memAllocPointer(1);
             int result = TinyEXR.SaveEXRImageToFile(image, header, pathBuf, err);
             if (result != 0) {
                 long errAddr = err.get(0);
                 String error = errAddr != 0 ? MemoryUtil.memUTF8(errAddr) : "unknown error";
-                MemoryUtil.memFree(err);
-                MemoryUtil.memFree(pathBuf);
                 throw new IOException("tinyexr SaveEXRImageToFile failed: " + error + " (code " + result + ")");
             }
+        } finally {
             MemoryUtil.memFree(err);
             MemoryUtil.memFree(pathBuf);
-        } finally {
-            // Free structs and all manually-allocated memory
-            // (don't call FreeEXRImage/FreeEXRHeader — they can double-free our allocations)
-            if (imagePtrs != null) MemoryUtil.memFree(imagePtrs);
-            if (pixelTypes != null) MemoryUtil.memFree(pixelTypes);
-            if (requestedTypes != null) MemoryUtil.memFree(requestedTypes);
-            for (ByteBuffer b : nameBufs) MemoryUtil.memFree(b);
-            if (channelInfo != null) channelInfo.free();
-            image.free();
-            header.free();
         }
     }
 
     public int getFrameCount() { return frameCount; }
 
     @Override
-    public void close() {}
+    public void close() {
+        if (closed) return;
+        closed = true;
+
+        // Free all pre-allocated native memory
+        MemoryUtil.memFree(rBuf);
+        MemoryUtil.memFree(gBuf);
+        MemoryUtil.memFree(bBuf);
+        MemoryUtil.memFree(aBuf);
+        MemoryUtil.memFree(zBuf);
+        MemoryUtil.memFree(imagePtrs);
+        MemoryUtil.memFree(pixelTypes);
+        MemoryUtil.memFree(requestedTypes);
+        for (ByteBuffer b : nameBufs) MemoryUtil.memFree(b);
+        channelInfo.free();
+        image.free();
+        header.free();
+    }
 }

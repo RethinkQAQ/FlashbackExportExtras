@@ -1,13 +1,19 @@
 package com.rethinkqaq.flashbackplus.exporting;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Queue;
 
 /**
  * Shared mutable state for depth capture and camera recording.
  * Written by MixinGameRenderer, read by MixinExportJob.
  * Lives outside the mixin class to satisfy Mixin's field visibility rules.
+ *
+ * Also manages a small pool of FloatBuffers to avoid per-frame
+ * native allocation overhead during depth PBO readback.
  */
 public class DepthCaptureState {
 
@@ -32,15 +38,58 @@ public class DepthCaptureState {
     /** FIFO queue of captured depth buffers, consumed at encode time. */
     public static final Deque<FloatBuffer> depthQueue = new ArrayDeque<>();
 
-    /** Clears all state for a new export. */
+    // === Buffer pool for PBO readback copies ===
+    private static final int POOL_CAPACITY = 4;
+    private static final Queue<FloatBuffer> bufferPool = new ArrayDeque<>();
+
+    /** Acquire a FloatBuffer from the pool, or allocate a new one. */
+    public static FloatBuffer acquireBuffer() {
+        synchronized (bufferPool) {
+            FloatBuffer buf = bufferPool.poll();
+            if (buf != null) {
+                buf.clear();
+                return buf;
+            }
+        }
+        return ByteBuffer.allocateDirect(width * height * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer();
+    }
+
+    /** Return a consumed FloatBuffer to the pool for reuse. */
+    public static void releaseBuffer(FloatBuffer buf) {
+        if (buf == null) return;
+        synchronized (bufferPool) {
+            if (bufferPool.size() < POOL_CAPACITY) {
+                bufferPool.add(buf);
+            }
+        }
+    }
+
+    /** Runnable to clean up PBOs on export end. Set by MixinGameRenderer. */
+    public static volatile Runnable pboCleanup = null;
+
+    /** Clears all state for a new export. Also runs PBO cleanup. */
     public static void reset() {
         active = false;
         width = height = 0;
         fovDegrees = 70.0f;
         camX = camY = camZ = 0.0;
         camYaw = camPitch = 0.0f;
+        depthFar = 1000.0f;
+
         synchronized (depthQueue) {
             depthQueue.clear();
+        }
+        synchronized (bufferPool) {
+            bufferPool.clear();
+        }
+
+        // Clean up PBOs on the render thread next frame
+        Runnable cleanup = pboCleanup;
+        pboCleanup = null;
+        if (cleanup != null) {
+            cleanup.run();
         }
     }
 }

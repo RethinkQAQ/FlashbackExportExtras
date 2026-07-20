@@ -37,6 +37,9 @@ public class ExrVideoWriter implements VideoWriter {
                 exrWriter.writeFrame(colorImage, depth, frameCount++);
             } catch (IOException e) {
                 Flashbackplus.LOGGER.error("Failed to write EXR frame", e);
+            } finally {
+                // Return buffer to pool for reuse (avoids per-frame native allocation)
+                DepthCaptureState.releaseBuffer(depth);
             }
         }
     }

@@ -33,10 +33,7 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    modImplementation "maven.modrinth:flashback:${project.flashback_version}-fabric,1.21.1"
-
-    modRuntimeOnly "com.moulberry:mixinconstraints:1.0.8"
-    modRuntimeOnly "com.github.bawnorton.mixinsquared:mixinsquared-fabric:0.3.7-beta.1"
+    modCompileOnly "maven.modrinth:flashback:${project.flashback_version}-fabric,1.21.1"
 
     // LWJGL TinyEXR — unified version via BOM, same approach as ReplayMod
     def lwjglVersion = "3.3.4"
