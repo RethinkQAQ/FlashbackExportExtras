@@ -37,17 +37,6 @@ import java.nio.FloatBuffer;
 @Mixin(value = GameRenderer.class, remap = false)
 public class MixinGameRenderer {
 
-    // === FOV Capture ===
-
-    @Redirect(method = "renderLevel",
-            at = @At(value = "INVOKE",
-                    target = "Lnet/minecraft/client/renderer/GameRenderer;getProjectionMatrix(D)Lorg/joml/Matrix4f;"),
-            remap = false)
-    private org.joml.Matrix4f captureFov(GameRenderer gameRenderer, double fov) {
-        DepthCaptureState.fovDegrees = (float) fov;
-        return gameRenderer.getProjectionMatrix(fov);
-    }
-
     // === Depth Capture: intercept hand-render depth clear inside renderLevel ===
 
     @Redirect(method = "renderLevel",

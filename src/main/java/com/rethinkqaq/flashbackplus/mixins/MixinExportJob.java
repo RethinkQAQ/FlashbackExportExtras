@@ -27,6 +27,9 @@ public class MixinExportJob {
     @Shadow
     private ExportSettings settings;
 
+    @Shadow
+    private double currentTickDouble;
+
     @Unique
     private CameraPathExporter cameraExporter;
 
@@ -41,12 +44,11 @@ public class MixinExportJob {
             remap = false)
     private VideoWriter redirectCreateWriter(ExportSettings settings, String tempFileName) throws IOException {
         if (FlashbackPlusConfig.INSTANCE.exportAsExr) {
-            Path outputDir = settings.output(); // folder from folder picker
+            Path outputDir = settings.output();
             int w = settings.resolutionX();
             int h = settings.resolutionY();
             return new ExrVideoWriter(outputDir, w, h);
         }
-        // Normal: replicate original logic
         if (settings.container() == VideoContainer.PNG_SEQUENCE) {
             return new PNGSequenceVideoWriter(settings);
         } else {
@@ -72,7 +74,6 @@ public class MixinExportJob {
                     DepthCaptureState.width, DepthCaptureState.height);
         }
 
-        // Camera path exporter (if enabled)
         if (FlashbackPlusConfig.INSTANCE.exportCameraPath) {
             float aspectRatio = (float) settings.resolutionX() / (float) settings.resolutionY();
             cameraExporter = new CameraPathExporter(aspectRatio, settings.framerate(),
@@ -80,7 +81,39 @@ public class MixinExportJob {
         }
     }
 
-    // === Redirect VideoWriter.encode: record camera (all modes), write EXR ===
+    // === Frame-level camera capture: inject after startDownload in doExport loop ===
+    //
+    // At this point the frame has been rendered, currentTickDouble is updated,
+    // and keyframe FOV (via MixinFOVKeyframe → keyframeTargetFov) has been evaluated.
+    // We interpolate FOV between server ticks using partialClientTick to eliminate
+    // the staircase effect that occurs when exporting at >20fps.
+
+    @Inject(method = "doExport",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V",
+                    shift = At.Shift.AFTER),
+            remap = false)
+    private void onStartDownloadAfter(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
+                                       CallbackInfo ci) {
+        if (cameraExporter == null) return;
+
+        // Compute sub-tick position for smooth FOV interpolation
+        double partialClientTick = currentTickDouble - (int) currentTickDouble;
+
+        float targetFov = DepthCaptureState.keyframeTargetFov;
+        float previousFov = DepthCaptureState.previousFov;
+
+        // Linear interpolation between server ticks
+        float interpolatedFov = (float) (previousFov + (targetFov - previousFov) * partialClientTick);
+
+        Vec3 pos = new Vec3(DepthCaptureState.camX, DepthCaptureState.camY, DepthCaptureState.camZ);
+        cameraExporter.recordFrame(pos, DepthCaptureState.camYaw, DepthCaptureState.camPitch, interpolatedFov);
+
+        // Update previousFov for next frame (track the keyframe target, not interpolated)
+        DepthCaptureState.previousFov = targetFov;
+    }
+
+    // === Redirect VideoWriter.encode: skip recording (done above), just handle EXR ===
 
     @Redirect(method = "submitDownloadedFrames",
             at = @At(value = "INVOKE",
@@ -88,32 +121,21 @@ public class MixinExportJob {
             remap = false)
     private void onVideoEncode(VideoWriter videoWriter, NativeImage image, FloatBuffer audioBuffer) {
         if (isExrMode) {
-            // EXR mode: write EXR via ExrVideoWriter, skip normal encode
             videoWriter.encode(image, audioBuffer);
         } else {
-            // Normal mode: call original encode
             videoWriter.encode(image, audioBuffer);
         }
-
-        // Record camera frame (all modes, if enabled)
-        recordCamera();
     }
 
-    @Unique
-    private void recordCamera() {
-        if (cameraExporter != null) {
-            Vec3 pos = new Vec3(DepthCaptureState.camX, DepthCaptureState.camY, DepthCaptureState.camZ);
-            cameraExporter.recordFrame(pos, DepthCaptureState.camYaw, DepthCaptureState.camPitch,
-                    DepthCaptureState.fovDegrees);
-        }
-    }
-
-    // === doExport RETURN: finalize camera path + cleanup ===
+    // === doExport RETURN: apply FOV smoothing + finalize camera path + cleanup ===
 
     @Inject(method = "doExport", at = @At("RETURN"), remap = false)
     private void onDoExportReturn(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                    CallbackInfo ci) {
         if (cameraExporter != null && cameraExporter.getFrameCount() > 0) {
+            // Apply Gaussian smoothing to eliminate residual micro-jitter
+            cameraExporter.applyGaussianSmoothing();
+
             Path videoPath = settings.output();
             String videoName = videoPath.getFileName().toString();
             int dot = videoName.lastIndexOf('.');

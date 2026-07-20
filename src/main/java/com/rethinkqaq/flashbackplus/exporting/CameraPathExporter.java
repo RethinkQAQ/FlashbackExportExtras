@@ -56,6 +56,36 @@ public class CameraPathExporter {
         return frameCount;
     }
 
+    /**
+     * Applies a 7-point Gaussian kernel to the FOV sequence to eliminate
+     * residual micro-jitter from the interpolation pipeline.
+     * Only affects frames sufficiently far from the ends (3+ frames from edges).
+     */
+    public void applyGaussianSmoothing() {
+        if (fovs.size() < 7) return;
+
+        // 7-point Gaussian kernel (sigma ≈ 1.0)
+        final float[] KERNEL = {0.006f, 0.061f, 0.242f, 0.383f, 0.242f, 0.061f, 0.006f};
+        final int RADIUS = 3;
+
+        float[] smoothed = new float[fovs.size()];
+        for (int i = 0; i < fovs.size(); i++) {
+            if (i < RADIUS || i >= fovs.size() - RADIUS) {
+                smoothed[i] = fovs.get(i);  // keep edge values as-is
+                continue;
+            }
+            float sum = 0f;
+            for (int j = -RADIUS; j <= RADIUS; j++) {
+                sum += fovs.get(i + j) * KERNEL[j + RADIUS];
+            }
+            smoothed[i] = sum;
+        }
+
+        for (int i = 0; i < fovs.size(); i++) {
+            fovs.set(i, smoothed[i]);
+        }
+    }
+
     public void finish(Path outputPath) throws IOException {
         if (frameCount == 0) return;
 

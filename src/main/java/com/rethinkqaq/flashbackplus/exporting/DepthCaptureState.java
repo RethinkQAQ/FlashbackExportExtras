@@ -29,6 +29,20 @@ public class DepthCaptureState {
     /** FOV captured from GameRenderer.getProjectionMatrix (degrees). */
     public static volatile float fovDegrees = 70.0f;
 
+    /**
+     * Target FOV set by the keyframe interpolation system.
+     * Updated by MixinFOVKeyframe whenever a FOV keyframe is evaluated.
+     * This is the "desired" FOV at the current server tick, before
+     * client-frame interpolation.
+     */
+    public static volatile float keyframeTargetFov = 70.0f;
+
+    /**
+     * Previous frame's interpolated FOV, used for client-frame
+     * interpolation between server ticks (via partialClientTick).
+     */
+    public static volatile float previousFov = 70.0f;
+
     /** Camera position captured after renderLevel (MC world space). */
     public static volatile double camX, camY, camZ;
 
@@ -74,6 +88,8 @@ public class DepthCaptureState {
         active = false;
         width = height = 0;
         fovDegrees = 70.0f;
+        keyframeTargetFov = 70.0f;
+        previousFov = 70.0f;
         camX = camY = camZ = 0.0;
         camYaw = camPitch = 0.0f;
         depthFar = 1000.0f;
