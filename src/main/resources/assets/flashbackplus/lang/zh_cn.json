@@ -1,0 +1,12 @@
+{
+  "flashbackplus.export_format": "输出格式",
+  "flashbackplus.format_video": "视频",
+  "flashbackplus.format_exr": "OpenEXR 序列 (深度)",
+  "flashbackplus.export_camera_path": "导出相机路径 (GLB)",
+  "flashbackplus.export_camera_path_tooltip": "将相机动画导出为 GLB 文件用于 Blender。\n包含位置、旋转、FOV 关键帧。",
+  "flashbackplus.relative_camera_path": "相对原点",
+  "flashbackplus.relative_camera_path_tooltip": "将相机路径偏移使首帧位于 (0,0,0)。\n方便在 Blender 中定位资源。",
+  "flashbackplus.exr_info": "导出多层 OpenEXR 帧（颜色 + 深度）。\n禁用抗锯齿以确保深度精度。",
+  "flashbackplus.linearize_depth": "世界空间线性化",
+  "flashbackplus.linearize_depth_tooltip": "将 NDC 深度 [0,1] 转换为世界空间距离。\n推荐用于 Blender 合成 — 深度值变为实际方块距离。"
+}

@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.rethinkqaq.flashbackplus.mixins",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MixinGameRenderer",
+    "MixinStartExportWindow"
+  ],
+  "mixins": [
+    "MixinExportJob"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "flashbackplus.export_format": "Output Format",
+  "flashbackplus.format_video": "Video",
+  "flashbackplus.format_exr": "OpenEXR Sequence (Depth)",
+  "flashbackplus.export_camera_path": "Export Camera Path (GLB)",
+  "flashbackplus.export_camera_path_tooltip": "Export camera animation as a GLB file for Blender.\nIncludes position, rotation, and FOV keyframes.",
+  "flashbackplus.relative_camera_path": "Relative Origin",
+  "flashbackplus.relative_camera_path_tooltip": "Shift the camera path so the first frame is at (0,0,0).\nEasier to position assets in Blender.",
+  "flashbackplus.exr_info": "Exports multi-layer OpenEXR frames with color and depth.\nAnti-aliasing is disabled for depth accuracy.",
+  "flashbackplus.linearize_depth": "Linearize Depth (World-Space)",
+  "flashbackplus.linearize_depth_tooltip": "Convert NDC depth [0,1] to world-space distance.\nRecommended for Blender compositing — depth values become actual block distances."
+}

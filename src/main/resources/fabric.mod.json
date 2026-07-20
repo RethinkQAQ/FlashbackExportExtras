@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "flashbackplus",
+  "version": "${version}",
+  "name": "Flashback Plus",
+  "description": "Adds depth map (OpenEXR) and camera path (GLB) export to Flashback replays",
+  "authors": ["RethinkQAQ"],
+  "contact": {},
+  "license": "LGPL-3.0",
+  "icon": "assets/flashbackplus/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "com.rethinkqaq.flashbackplus.Flashbackplus"
+    ],
+    "client": [
+      "com.rethinkqaq.flashbackplus.Flashbackplus"
+    ]
+  },
+  "mixins": [
+    "flashbackplus.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.14.0",
+    "fabric-api": "*",
+    "minecraft": ">=1.21",
+    "flashback": "*"
+  },
+  "custom": {
+    "modmenu": {
+      "links": {},
+      "parent": {
+        "id": "flashback"
+      }
+    }
+  }
+}
