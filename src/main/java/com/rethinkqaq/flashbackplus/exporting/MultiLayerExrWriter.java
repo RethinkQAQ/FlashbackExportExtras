@@ -134,7 +134,8 @@ public class MultiLayerExrWriter implements AutoCloseable {
             rBuf.put(i, (pixel & 0xFF) * inv255);
             gBuf.put(i, ((pixel >> 8) & 0xFF) * inv255);
             bBuf.put(i, ((pixel >> 16) & 0xFF) * inv255);
-            aBuf.put(i, ((pixel >> 24) & 0xFF) * inv255);
+            // Force full opacity: Iris shaders may write non-0xFF alpha for compositing/HDR
+            aBuf.put(i, 1.0f);
         }
 
         // --- Pass 2: Fill depth (Y-flipped from GL bottom-up) ---
