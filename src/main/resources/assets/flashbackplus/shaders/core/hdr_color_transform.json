@@ -1,0 +1,12 @@
+{
+  "vertex": "flashbackplus:screenquad_flip",
+  "fragment": "flashbackplus:hdr_color_transform",
+  "samplers": [
+    { "name": "InSampler", "location": 0 }
+  ],
+  "uniforms": [
+    { "name": "UiBrightness", "type": "float", "count": 1, "values": [ 1000.0 ] },
+    { "name": "Primaries",      "type": "int",   "count": 1, "values": [ 6 ] },
+    { "name": "TransferFunction","type": "int",   "count": 1, "values": [ 11 ] }
+  ]
+}

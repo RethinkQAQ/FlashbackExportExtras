@@ -35,8 +35,11 @@ dependencies {
 
     modCompileOnly "maven.modrinth:flashback:${project.flashback_version}-fabric,1.21.1"
 
+    // HDR mod
+    modImplementation "maven.modrinth:tycXenOB:bmvxivag"
+
     // LWJGL TinyEXR — unified version via BOM, same approach as ReplayMod
-    def lwjglVersion = "3.3.4"
+    def lwjglVersion = "3.3.3"
     def lwjglNatives = "natives-windows"
     if (org.gradle.internal.os.OperatingSystem.current().isMacOsX()) {
         lwjglNatives = org.gradle.internal.os.OperatingSystem.current().nativePrefix.contains("aarch64")

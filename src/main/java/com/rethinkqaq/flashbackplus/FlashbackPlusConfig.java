@@ -28,6 +28,15 @@ public class FlashbackPlusConfig {
     /** True = offset camera path to start at origin. */
     public boolean cameraPathRelativeOrigin = true;
 
+    /** True = export with HDR10 (BT.2020 + PQ). Requires HDR Mod. */
+    public boolean hdrExport = false;
+
+    /** Peak brightness in nits for PQ encoding (default 1000). */
+    public int hdrPeakBrightness = 1000;
+
+    /** Paper white brightness in nits (SDR reference level, default 203). */
+    public int hdrPaperWhiteNits = 203;
+
     public static void load() {
         if (Files.exists(CONFIG_PATH)) {
             try {

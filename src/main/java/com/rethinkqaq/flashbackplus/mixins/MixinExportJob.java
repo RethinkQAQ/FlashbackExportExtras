@@ -1,13 +1,12 @@
 package com.rethinkqaq.flashbackplus.mixins;
 
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.combo_options.VideoContainer;
 import com.moulberry.flashback.exporting.*;
 import com.rethinkqaq.flashbackplus.FlashbackPlusConfig;
 import com.rethinkqaq.flashbackplus.Flashbackplus;
-import com.rethinkqaq.flashbackplus.exporting.CameraPathExporter;
-import com.rethinkqaq.flashbackplus.exporting.DepthCaptureState;
-import com.rethinkqaq.flashbackplus.exporting.ExrVideoWriter;
+import com.rethinkqaq.flashbackplus.exporting.*;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -18,6 +17,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.file.Path;
 
@@ -36,18 +36,41 @@ public class MixinExportJob {
     @Unique
     private boolean isExrMode;
 
-    // === Redirect createVideoWriter: return ExrVideoWriter for EXR mode ===
+    @Unique
+    private boolean isHdrMode;
+
+    @Unique
+    private HdrColorTransformShader hdrColorShader;
+
+    @Unique
+    private HdrFrameCapture hdrFrameCapture;
+
+    @Unique
+    private HdrVideoWriter hdrWriterRef;
+
+    // === Redirect createVideoWriter ===
 
     @Redirect(method = "run",
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/ExportJob;createVideoWriter(Lcom/moulberry/flashback/exporting/ExportSettings;Ljava/lang/String;)Lcom/moulberry/flashback/exporting/VideoWriter;"),
             remap = false)
     private VideoWriter redirectCreateWriter(ExportSettings settings, String tempFileName) throws IOException {
-        if (FlashbackPlusConfig.INSTANCE.exportAsExr) {
+        isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
+        isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
+
+        if (isExrMode) {
             Path outputDir = settings.output();
             int w = settings.resolutionX();
             int h = settings.resolutionY();
             return new ExrVideoWriter(outputDir, w, h);
+        }
+        if (isHdrMode) {
+            Path tempPath = java.nio.file.Path.of(tempFileName);
+            int w = settings.resolutionX();
+            int h = settings.resolutionY();
+            Flashbackplus.LOGGER.info("HDR export temp: {} → final: {}", tempPath, settings.output());
+            hdrWriterRef = new HdrVideoWriter(tempPath, w, h, settings.framerate());
+            return hdrWriterRef;
         }
         if (settings.container() == VideoContainer.PNG_SEQUENCE) {
             return new PNGSequenceVideoWriter(settings);
@@ -56,12 +79,13 @@ public class MixinExportJob {
         }
     }
 
-    // === doExport HEAD: setup depth capture + camera exporter ===
+    // === doExport HEAD ===
 
     @Inject(method = "doExport", at = @At("HEAD"), remap = false)
     private void onDoExportStart(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                   CallbackInfo ci) {
         isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr;
+        isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
         DepthCaptureState.reset();
 
         ExportJob self = (ExportJob) (Object) this;
@@ -70,8 +94,18 @@ public class MixinExportJob {
             DepthCaptureState.width = self.getWidth();
             DepthCaptureState.height = self.getHeight();
             DepthCaptureState.active = true;
-            Flashbackplus.LOGGER.info("EXR depth capture: {}x{}",
-                    DepthCaptureState.width, DepthCaptureState.height);
+        }
+
+        if (isHdrMode) {
+            int w = self.getWidth();
+            int h = self.getHeight();
+            HdrExportState.width = w;
+            HdrExportState.height = h;
+            HdrExportState.setPeakBrightness((float) FlashbackPlusConfig.INSTANCE.hdrPeakBrightness);
+            HdrExportState.activate();
+            hdrColorShader = new HdrColorTransformShader();
+            hdrFrameCapture = new HdrFrameCapture();
+            Flashbackplus.LOGGER.info("HDR export: {}x{} peak={}nits", w, h, HdrExportState.getPeakBrightness());
         }
 
         if (FlashbackPlusConfig.INSTANCE.exportCameraPath) {
@@ -81,12 +115,45 @@ public class MixinExportJob {
         }
     }
 
-    // === Frame-level camera capture: inject after startDownload in doExport loop ===
+    // === HDR color transform + capture: inject BEFORE startDownload ===
     //
-    // At this point the frame has been rendered, currentTickDouble is updated,
-    // and keyframe FOV (via MixinFOVKeyframe → keyframeTargetFov) has been evaluated.
-    // We interpolate FOV between server ticks using partialClientTick to eliminate
-    // the staircase effect that occurs when exporting at >20fps.
+    // Injects before the startDownload call in doExport(VideoWriter, SaveableFramebufferQueue).
+    // Mixin provides closing-method params here, so we use Minecraft.getMainRenderTarget()
+    // to access the render target instead of trying to capture locals.
+
+    @Inject(method = "doExport",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
+            remap = false)
+    private void beforeStartDownload(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
+                                      CallbackInfo ci) {
+        if (!isHdrMode || hdrColorShader == null || hdrFrameCapture == null) return;
+
+        // Get the main render target (MC renders into this during export)
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        com.mojang.blaze3d.pipeline.RenderTarget target = mc.getMainRenderTarget();
+        if (target == null) return;
+
+        // Step 1: Color transform — scRGB-nl → BT.2020 + PQ
+        int srcTexId = target.getColorTextureId();
+        float peak = HdrExportState.getPeakBrightness();
+        int hdrTexId = hdrColorShader.render(srcTexId, peak);
+
+        // Step 2: Async 16-bit PBO readback
+        hdrFrameCapture.issueReadback(hdrTexId);
+
+        // Step 3: Collect ready frames
+        java.nio.ByteBuffer hdrData = hdrFrameCapture.tryCollect();
+        if (hdrData != null) {
+            if (hdrWriterRef != null) {
+                hdrWriterRef.addHdrFrame(hdrData);
+            } else {
+                HdrExportState.enqueueFrame(hdrData);
+            }
+        }
+    }
+
+    // === Camera capture: inject AFTER startDownload ===
 
     @Inject(method = "doExport",
             at = @At(value = "INVOKE",
@@ -97,62 +164,73 @@ public class MixinExportJob {
                                        CallbackInfo ci) {
         if (cameraExporter == null) return;
 
-        // Compute sub-tick position for smooth FOV interpolation
         double partialClientTick = currentTickDouble - (int) currentTickDouble;
-
         float targetFov = DepthCaptureState.keyframeTargetFov;
         float previousFov = DepthCaptureState.previousFov;
-
-        // Linear interpolation between server ticks
         float interpolatedFov = (float) (previousFov + (targetFov - previousFov) * partialClientTick);
 
         Vec3 pos = new Vec3(DepthCaptureState.camX, DepthCaptureState.camY, DepthCaptureState.camZ);
         cameraExporter.recordFrame(pos, DepthCaptureState.camYaw, DepthCaptureState.camPitch, interpolatedFov);
-
-        // Update previousFov for next frame (track the keyframe target, not interpolated)
         DepthCaptureState.previousFov = targetFov;
     }
 
-    // === Redirect VideoWriter.encode: skip recording (done above), just handle EXR ===
+    // === Redirect VideoWriter.encode ===
 
     @Redirect(method = "submitDownloadedFrames",
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;encode(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/nio/FloatBuffer;)V"),
             remap = false)
     private void onVideoEncode(VideoWriter videoWriter, NativeImage image, FloatBuffer audioBuffer) {
-        if (isExrMode) {
-            videoWriter.encode(image, audioBuffer);
-        } else {
-            videoWriter.encode(image, audioBuffer);
-        }
+        videoWriter.encode(image, audioBuffer);
     }
 
-    // === doExport RETURN: apply FOV smoothing + finalize camera path + cleanup ===
+    // === doExport RETURN: cleanup ===
 
     @Inject(method = "doExport", at = @At("RETURN"), remap = false)
     private void onDoExportReturn(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                    CallbackInfo ci) {
         if (cameraExporter != null && cameraExporter.getFrameCount() > 0) {
-            // Apply Gaussian smoothing to eliminate residual micro-jitter
             cameraExporter.applyGaussianSmoothing();
-
             Path videoPath = settings.output();
             String videoName = videoPath.getFileName().toString();
             int dot = videoName.lastIndexOf('.');
             String base = dot > 0 ? videoName.substring(0, dot) : videoName;
             Path glbPath = videoPath.resolveSibling(base + "_camera.glb");
-
             try {
                 cameraExporter.finish(glbPath);
-                Flashbackplus.LOGGER.info("Camera path: {} frames → {}",
-                        cameraExporter.getFrameCount(), glbPath);
+                Flashbackplus.LOGGER.info("Camera path: {} frames → {}", cameraExporter.getFrameCount(), glbPath);
             } catch (IOException e) {
                 Flashbackplus.LOGGER.error("Failed to write camera path GLB", e);
             }
         }
 
+        // Drain remaining HDR frames
+        if (isHdrMode && hdrFrameCapture != null) {
+            ByteBuffer remaining = hdrFrameCapture.collect();
+            if (remaining != null && hdrWriterRef != null) {
+                hdrWriterRef.addHdrFrame(remaining);
+            }
+            // Also drain any buffered frames
+            while ((remaining = hdrFrameCapture.tryCollect()) != null) {
+                if (hdrWriterRef != null) hdrWriterRef.addHdrFrame(remaining);
+            }
+        }
+
+        // HDR cleanup
+        if (hdrColorShader != null) {
+            hdrColorShader.close();
+            hdrColorShader = null;
+        }
+        if (hdrFrameCapture != null) {
+            hdrFrameCapture.close();
+            hdrFrameCapture = null;
+        }
+        HdrExportState.deactivate();
+
         DepthCaptureState.reset();
         cameraExporter = null;
         isExrMode = false;
+        isHdrMode = false;
+        hdrWriterRef = null;
     }
 }

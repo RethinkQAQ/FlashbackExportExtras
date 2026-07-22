@@ -8,5 +8,11 @@
   "flashbackplus.relative_camera_path_tooltip": "将相机路径偏移使首帧位于 (0,0,0)。\n方便在 Blender 中定位资源。",
   "flashbackplus.exr_info": "导出多层 OpenEXR 帧（颜色 + 深度）。\n禁用抗锯齿以确保深度精度。",
   "flashbackplus.linearize_depth": "世界空间线性化",
-  "flashbackplus.linearize_depth_tooltip": "将 NDC 深度 [0,1] 转换为世界空间距离。\n推荐用于 Blender 合成 — 深度值变为实际方块距离。"
+  "flashbackplus.linearize_depth_tooltip": "将 NDC 深度 [0,1] 转换为世界空间距离。\n推荐用于 Blender 合成 — 深度值变为实际方块距离。",
+  "flashbackplus.hdr_export": "HDR 导出 (HDR10)",
+  "flashbackplus.hdr_export_tooltip": "导出 HDR10 视频 (BT.2020 色域 + ST.2084 PQ 传递函数)。\n需要安装 HDR Mod 和 HDR 兼容的光影包。",
+  "flashbackplus.hdr_peak_brightness": "峰值亮度 (nits)",
+  "flashbackplus.hdr_peak_brightness_tooltip": "PQ 编码用的最大显示亮度。\n默认：1000 nits (HDR10 标准)。HDR 显示器更亮可调高。",
+  "flashbackplus.hdr_paper_white": "纸白亮度 (nits)",
+  "flashbackplus.hdr_paper_white_tooltip": "SDR 参考白电平。场景中的漫反射白色\n对应此亮度。默认：203 nits。"
 }

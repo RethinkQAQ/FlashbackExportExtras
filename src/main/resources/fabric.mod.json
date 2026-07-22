@@ -26,6 +26,9 @@
     "minecraft": ">=1.21",
     "flashback": "*"
   },
+  "suggests": {
+    "hdr_mod": "*"
+  },
   "custom": {
     "modmenu": {
       "links": {},

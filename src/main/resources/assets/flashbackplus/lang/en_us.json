@@ -8,5 +8,11 @@
   "flashbackplus.relative_camera_path_tooltip": "Shift the camera path so the first frame is at (0,0,0).\nEasier to position assets in Blender.",
   "flashbackplus.exr_info": "Exports multi-layer OpenEXR frames with color and depth.\nAnti-aliasing is disabled for depth accuracy.",
   "flashbackplus.linearize_depth": "Linearize Depth (World-Space)",
-  "flashbackplus.linearize_depth_tooltip": "Convert NDC depth [0,1] to world-space distance.\nRecommended for Blender compositing — depth values become actual block distances."
+  "flashbackplus.linearize_depth_tooltip": "Convert NDC depth [0,1] to world-space distance.\nRecommended for Blender compositing — depth values become actual block distances.",
+  "flashbackplus.hdr_export": "HDR Export (HDR10)",
+  "flashbackplus.hdr_export_tooltip": "Export HDR10 video with BT.2020 primaries and ST.2084 PQ transfer function.\nRequires HDR Mod and an HDR-compatible Iris shaderpack.",
+  "flashbackplus.hdr_peak_brightness": "Peak Brightness (nits)",
+  "flashbackplus.hdr_peak_brightness_tooltip": "Maximum display luminance for PQ encoding.\nDefault: 1000 nits (HDR10 standard). Increase for brighter HDR screens.",
+  "flashbackplus.hdr_paper_white": "Paper White (nits)",
+  "flashbackplus.hdr_paper_white_tooltip": "SDR reference white level. Diffuse white in the scene\nmaps to this brightness. Default: 203 nits."
 }

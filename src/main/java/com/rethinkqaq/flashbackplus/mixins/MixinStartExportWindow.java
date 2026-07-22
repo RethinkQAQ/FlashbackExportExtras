@@ -3,6 +3,7 @@ package com.rethinkqaq.flashbackplus.mixins;
 import com.moulberry.flashback.configuration.FlashbackConfigV1;
 import com.moulberry.flashback.state.EditorState;
 import com.rethinkqaq.flashbackplus.FlashbackPlusConfig;
+import com.rethinkqaq.flashbackplus.exporting.HdrExportState;
 import imgui.moulberry90.ImGui;
 import net.minecraft.client.resources.language.I18n;
 import org.spongepowered.asm.mixin.Mixin;
@@ -62,6 +63,46 @@ public class MixinStartExportWindow {
 
             // Skip normal renderVideoOptions (container dropdown, codecs, bitrate)
             ci.cancel();
+        }
+
+        // === HDR Export option (only shown when HDR Mod is available) ===
+        if (HdrExportState.isAvailable()) {
+            ImGui.spacing();
+            boolean hdr = FlashbackPlusConfig.INSTANCE.hdrExport;
+            if (ImGui.checkbox(I18n.get("flashbackplus.hdr_export"), hdr)) {
+                FlashbackPlusConfig.INSTANCE.hdrExport = !hdr;
+                // HDR is exclusive with EXR
+                if (FlashbackPlusConfig.INSTANCE.hdrExport) {
+                    FlashbackPlusConfig.INSTANCE.exportAsExr = false;
+                }
+                FlashbackPlusConfig.save();
+            }
+            if (ImGui.isItemHovered()) {
+                ImGui.setTooltip(I18n.get("flashbackplus.hdr_export_tooltip"));
+            }
+
+            if (FlashbackPlusConfig.INSTANCE.hdrExport) {
+                // Peak brightness slider
+                int[] peak = {FlashbackPlusConfig.INSTANCE.hdrPeakBrightness};
+                if (ImGui.sliderInt(I18n.get("flashbackplus.hdr_peak_brightness"), peak, 500, 4000)) {
+                    FlashbackPlusConfig.INSTANCE.hdrPeakBrightness = peak[0];
+                    HdrExportState.setPeakBrightness((float) peak[0]);
+                    FlashbackPlusConfig.save();
+                }
+                if (ImGui.isItemHovered()) {
+                    ImGui.setTooltip(I18n.get("flashbackplus.hdr_peak_brightness_tooltip"));
+                }
+
+                // Paper white brightness slider
+                int[] paperWhite = {FlashbackPlusConfig.INSTANCE.hdrPaperWhiteNits};
+                if (ImGui.sliderInt(I18n.get("flashbackplus.hdr_paper_white"), paperWhite, 80, 500)) {
+                    FlashbackPlusConfig.INSTANCE.hdrPaperWhiteNits = paperWhite[0];
+                    FlashbackPlusConfig.save();
+                }
+                if (ImGui.isItemHovered()) {
+                    ImGui.setTooltip(I18n.get("flashbackplus.hdr_paper_white_tooltip"));
+                }
+            }
         }
     }
 
