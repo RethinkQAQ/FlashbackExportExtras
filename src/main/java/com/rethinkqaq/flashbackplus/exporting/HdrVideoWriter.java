@@ -3,20 +3,21 @@ package com.rethinkqaq.flashbackplus.exporting;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.exporting.VideoWriter;
 import com.rethinkqaq.flashbackplus.Flashbackplus;
+import org.lwjgl.system.MemoryUtil;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * HDR VideoWriter for HDR10 export.
  *
- * Collects 16-bit RGBA frames (PQ-encoded, BT.2020 primaries) and
- * encodes them on finish() via an external FFmpeg process.
+ * Streams 16-bit RGBA frames (PQ-encoded, BT.2020 primaries) to FFmpeg
+ * via stdin pipe. Frames are written immediately on addHdrFrame() and
+ * freed right after — no accumulation in memory.
  */
 public class HdrVideoWriter implements VideoWriter {
 
@@ -24,7 +25,11 @@ public class HdrVideoWriter implements VideoWriter {
     private final int width;
     private final int height;
     private final double framerate;
-    private final List<ByteBuffer> frames = new ArrayList<>();
+    private final int frameSize;
+    private final byte[] frameBytes;  // reusable write buffer
+    private Process ffmpegProcess;
+    private OutputStream ffmpegStdin;
+    private int frameCount;
     private boolean finished;
 
     public HdrVideoWriter(Path outputPath, int width, int height, double framerate) throws IOException {
@@ -32,63 +37,16 @@ public class HdrVideoWriter implements VideoWriter {
         this.width = width;
         this.height = height;
         this.framerate = framerate;
+        this.frameSize = width * height * 8;
+        this.frameBytes = new byte[frameSize];
         Files.createDirectories(outputPath.getParent());
         Flashbackplus.LOGGER.info("HDR video export: {}x{} @ {}fps → {}",
                 width, height, framerate, outputPath);
     }
 
-    /** Adds a 16-bit RGBA HDR frame (called from MixinExportJob). */
-    public void addHdrFrame(ByteBuffer hdrData) {
-        if (!finished) {
-            frames.add(hdrData);
-        }
-    }
-
-    public int getFrameCount() {
-        return frames.size();
-    }
-
-    /**
-     * Standard VideoWriter.encode — ignored in HDR mode.
-     * Actual frame data comes via addHdrFrame().
-     */
-    @Override
-    public void encode(NativeImage image, FloatBuffer audioBuffer) {
-        // HDR frames arrive through addHdrFrame() — this is the 8-bit path (unused for HDR)
-    }
-
-    @Override
-    public void finish() {
-        if (finished) return;
-        finished = true;
-
-        if (frames.isEmpty()) {
-            Flashbackplus.LOGGER.warn("HDR export: no frames captured");
-            return;
-        }
-
-        Flashbackplus.LOGGER.info("HDR export: encoding {} frames via FFmpeg...", frames.size());
-
-        try {
-            encodeWithFfmpeg();
-        } catch (IOException e) {
-            Flashbackplus.LOGGER.error("HDR export: FFmpeg encoding failed", e);
-        } finally {
-            // Free all frame buffers
-            for (ByteBuffer buf : frames) {
-                org.lwjgl.system.MemoryUtil.memFree(buf);
-            }
-            frames.clear();
-        }
-
-        Flashbackplus.LOGGER.info("HDR export: done → {}", outputPath);
-    }
-
-    private void encodeWithFfmpeg() throws IOException {
-        // Build FFmpeg command
+    private void ensureStarted() throws IOException {
+        if (ffmpegProcess != null) return;
         String outputStr = outputPath.toAbsolutePath().toString();
-        int frameSize = width * height * 8; // RGBA16 = 8 bytes/pixel
-
         ProcessBuilder pb = new ProcessBuilder(
             "ffmpeg",
             "-y",
@@ -108,44 +66,62 @@ public class HdrVideoWriter implements VideoWriter {
             "-x265-params", "hdr-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
             outputStr
         );
-
         pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-        Process process = pb.start();
+        ffmpegProcess = pb.start();
+        ffmpegStdin = ffmpegProcess.getOutputStream();
+    }
 
-        // Write all frames to FFmpeg stdin in a background thread
-        new Thread(() -> {
-            try {
-                var out = process.getOutputStream();
-                byte[] frameBytes = new byte[frameSize];
-                for (ByteBuffer buf : frames) {
-                    buf.rewind();
-                    buf.get(frameBytes);
-                    out.write(frameBytes);
-                }
-                out.flush();
-                out.close();
-            } catch (IOException e) {
-                Flashbackplus.LOGGER.error("HDR export: pipe write failed", e);
-            }
-        }, "HDR-FFmpeg-writer").start();
-
-        try {
-            int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                Flashbackplus.LOGGER.warn("FFmpeg exited with code {}", exitCode);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroy();
+    /**
+     * Writes a 16-bit RGBA frame directly to FFmpeg stdin, then frees it.
+     */
+    public void addHdrFrame(ByteBuffer hdrData) {
+        if (finished) {
+            MemoryUtil.memFree(hdrData);
+            return;
         }
+        try {
+            ensureStarted();
+            // Copy to reusable buffer and free immediately
+            hdrData.rewind();
+            hdrData.get(frameBytes);
+            MemoryUtil.memFree(hdrData);
+            ffmpegStdin.write(frameBytes);
+            frameCount++;
+        } catch (IOException e) {
+            Flashbackplus.LOGGER.error("HDR export: pipe write failed at frame {}", frameCount, e);
+            MemoryUtil.memFree(hdrData);
+        }
+    }
+
+    @Override
+    public void encode(NativeImage image, FloatBuffer audioBuffer) {
+        // HDR frames arrive through addHdrFrame()
+    }
+
+    @Override
+    public void finish() {
+        if (finished) return;
+        finished = true;
+        if (ffmpegStdin != null) {
+            try { ffmpegStdin.flush(); ffmpegStdin.close(); } catch (IOException ignored) {}
+        }
+        if (ffmpegProcess != null) {
+            try {
+                int exitCode = ffmpegProcess.waitFor();
+                if (exitCode != 0) {
+                    Flashbackplus.LOGGER.warn("FFmpeg exited with code {}", exitCode);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                ffmpegProcess.destroy();
+            }
+        }
+        Flashbackplus.LOGGER.info("HDR export: {} frames → {}", frameCount, outputPath);
     }
 
     @Override
     public void close() {
         finished = true;
-        for (ByteBuffer buf : frames) {
-            org.lwjgl.system.MemoryUtil.memFree(buf);
-        }
-        frames.clear();
+        if (ffmpegProcess != null) ffmpegProcess.destroy();
     }
 }

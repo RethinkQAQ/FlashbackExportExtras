@@ -144,12 +144,8 @@ public class MixinExportJob {
 
         // Step 3: Collect ready frames
         java.nio.ByteBuffer hdrData = hdrFrameCapture.tryCollect();
-        if (hdrData != null) {
-            if (hdrWriterRef != null) {
-                hdrWriterRef.addHdrFrame(hdrData);
-            } else {
-                HdrExportState.enqueueFrame(hdrData);
-            }
+        if (hdrData != null && hdrWriterRef != null) {
+            hdrWriterRef.addHdrFrame(hdrData);
         }
     }
 
@@ -181,7 +177,13 @@ public class MixinExportJob {
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;encode(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/nio/FloatBuffer;)V"),
             remap = false)
     private void onVideoEncode(VideoWriter videoWriter, NativeImage image, FloatBuffer audioBuffer) {
-        videoWriter.encode(image, audioBuffer);
+        if (isHdrMode) {
+            // Normal pipeline's NativeImage is unused in HDR mode.
+            // Explicitly free to prevent native memory accumulation (GC finalizer is too slow).
+            image.close();
+        } else {
+            videoWriter.encode(image, audioBuffer);
+        }
     }
 
     // === doExport RETURN: cleanup ===

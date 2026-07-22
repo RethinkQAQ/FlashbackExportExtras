@@ -9,9 +9,10 @@ import java.nio.ByteBuffer;
 /**
  * 16-bit PBO asynchronous frame readback for HDR export.
  *
- * Double-buffered PBO pipeline using raw OpenGL:
- *   - PBO size: 8 bytes/pixel (RGBA16)
- *   - glGetTexImage → PBO → fence sync → glMapBuffer → ByteBuffer
+ * Double-buffered PBO pipeline. Pooled ByteBuffers are reused across
+ * frames to avoid per-frame native allocation (~16 MB/frame at 1080p).
+ *
+ * Flow: glGetTexImage → PBO → fence sync → glMapBuffer → memCopy→pooled buf
  */
 public class HdrFrameCapture implements AutoCloseable {
 
@@ -19,10 +20,11 @@ public class HdrFrameCapture implements AutoCloseable {
 
     private final int[] pboIds = new int[PBO_COUNT];
     private final long[] fences = new long[PBO_COUNT];
-    private final ByteBuffer[] results = new ByteBuffer[PBO_COUNT];
+    /** Pooled readers — allocated once, reused every frame. */
+    private final ByteBuffer[] pooled = new ByteBuffer[PBO_COUNT];
+    /** Flags whether pooled[i] contains valid data ready for collection. */
+    private final boolean[] ready = new boolean[PBO_COUNT];
     private long pboSize;
-    private int width;
-    private int height;
     private int writeIdx;
     private int pendingCount;
     private boolean initialized;
@@ -30,34 +32,26 @@ public class HdrFrameCapture implements AutoCloseable {
     public HdrFrameCapture() {
     }
 
-    /**
-     * Lazy-init or resize PBOs to match the actual texture being read.
-     * Called on first frame (dimensions may differ from ExportJob settings due to SSAA).
-     */
     private void ensureResources(int texId) {
-        // Query actual texture dimensions
         GL32.glBindTexture(GL32.GL_TEXTURE_2D, texId);
         int texW = GL32.glGetTexLevelParameteri(GL32.GL_TEXTURE_2D, 0, GL32.GL_TEXTURE_WIDTH);
         int texH = GL32.glGetTexLevelParameteri(GL32.GL_TEXTURE_2D, 0, GL32.GL_TEXTURE_HEIGHT);
         GL32.glBindTexture(GL32.GL_TEXTURE_2D, 0);
 
         long newSize = 8L * texW * texH;
-
         if (initialized && this.pboSize == newSize) return;
 
-        // Close old PBOs if size changed
-        if (initialized) {
-            close();
-        }
+        // Size changed — close and recreate
+        if (initialized) close();
 
-        this.width = texW;
-        this.height = texH;
         this.pboSize = newSize;
 
         for (int i = 0; i < PBO_COUNT; i++) {
             pboIds[i] = GL32.glGenBuffers();
             GL32.glBindBuffer(GL32.GL_PIXEL_PACK_BUFFER, pboIds[i]);
             GL32.glBufferData(GL32.GL_PIXEL_PACK_BUFFER, pboSize, GL32.GL_STREAM_READ);
+            // Pre-allocate pooled buffer
+            pooled[i] = MemoryUtil.memAlloc((int) pboSize);
         }
         GL32.glBindBuffer(GL32.GL_PIXEL_PACK_BUFFER, 0);
         initialized = true;
@@ -66,8 +60,6 @@ public class HdrFrameCapture implements AutoCloseable {
     /**
      * Issues an asynchronous readback of the given GL texture.
      * Call {@link #tryCollect()} on subsequent frames to retrieve data.
-     *
-     * @param textureId Raw OpenGL texture ID
      */
     public void issueReadback(int textureId) {
         RenderSystem.assertOnRenderThread();
@@ -75,23 +67,25 @@ public class HdrFrameCapture implements AutoCloseable {
 
         int readIdx = (writeIdx + 1) % PBO_COUNT;
 
-        // Collect previous result if ready
+        // Collect previous result if fence signaled
         if (fences[readIdx] != 0) {
             int waitResult = GL32.glClientWaitSync(fences[readIdx], 0, 0);
             if (waitResult == GL32.GL_ALREADY_SIGNALED || waitResult == GL32.GL_CONDITION_SATISFIED) {
                 GL32.glDeleteSync(fences[readIdx]);
                 fences[readIdx] = 0;
 
+                // Copy PBO → pooled buffer (reused allocation)
                 GL32.glBindBuffer(GL32.GL_PIXEL_PACK_BUFFER, pboIds[readIdx]);
                 ByteBuffer mapped = GL32.glMapBuffer(GL32.GL_PIXEL_PACK_BUFFER, GL32.GL_READ_ONLY);
                 if (mapped != null) {
-                    if (results[readIdx] != null) {
-                        MemoryUtil.memFree(results[readIdx]);
-                    }
-                    results[readIdx] = MemoryUtil.memAlloc((int) pboSize);
+                    // Rewind pooled buffer and copy in-place
+                    ByteBuffer buf = pooled[readIdx];
+                    buf.rewind();
                     MemoryUtil.memCopy(MemoryUtil.memAddress(mapped),
-                            MemoryUtil.memAddress(results[readIdx]), (int) pboSize);
+                            MemoryUtil.memAddress(buf), (int) pboSize);
+                    buf.rewind();
                     GL32.glUnmapBuffer(GL32.GL_PIXEL_PACK_BUFFER);
+                    ready[readIdx] = true;
                     if (pendingCount < PBO_COUNT) pendingCount++;
                 }
                 GL32.glBindBuffer(GL32.GL_PIXEL_PACK_BUFFER, 0);
@@ -109,14 +103,22 @@ public class HdrFrameCapture implements AutoCloseable {
         writeIdx = readIdx;
     }
 
-    /** Attempts to collect the oldest pending frame. Returns null if none ready. */
+    /**
+     * Attempts to collect the oldest pending frame.
+     * @return a COPY of the frame data (caller must memFree), or null if none ready.
+     */
     public ByteBuffer tryCollect() {
         for (int i = 0; i < PBO_COUNT; i++) {
             int idx = (writeIdx + 1 + i) % PBO_COUNT;
-            if (results[idx] != null) {
-                ByteBuffer result = results[idx];
-                results[idx] = null;
+            if (ready[idx]) {
+                ready[idx] = false;
                 if (pendingCount > 0) pendingCount--;
+                // Return a copy so the pooled buffer can be reused next cycle
+                ByteBuffer result = MemoryUtil.memAlloc((int) pboSize);
+                ByteBuffer src = pooled[idx];
+                src.rewind();
+                MemoryUtil.memCopy(MemoryUtil.memAddress(src), MemoryUtil.memAddress(result), (int) pboSize);
+                result.rewind();
                 return result;
             }
         }
@@ -127,7 +129,6 @@ public class HdrFrameCapture implements AutoCloseable {
     public ByteBuffer collect() {
         ByteBuffer result;
         while ((result = tryCollect()) == null) {
-            // Poll the fences manually
             for (int i = 0; i < PBO_COUNT; i++) {
                 int idx = (writeIdx + 1 + i) % PBO_COUNT;
                 if (fences[idx] != 0) {
@@ -138,11 +139,13 @@ public class HdrFrameCapture implements AutoCloseable {
                         GL32.glBindBuffer(GL32.GL_PIXEL_PACK_BUFFER, pboIds[idx]);
                         ByteBuffer mapped = GL32.glMapBuffer(GL32.GL_PIXEL_PACK_BUFFER, GL32.GL_READ_ONLY);
                         if (mapped != null) {
-                            if (results[idx] != null) MemoryUtil.memFree(results[idx]);
-                            results[idx] = MemoryUtil.memAlloc((int) pboSize);
+                            ByteBuffer buf = pooled[idx];
+                            buf.rewind();
                             MemoryUtil.memCopy(MemoryUtil.memAddress(mapped),
-                                    MemoryUtil.memAddress(results[idx]), (int) pboSize);
+                                    MemoryUtil.memAddress(buf), (int) pboSize);
+                            buf.rewind();
                             GL32.glUnmapBuffer(GL32.GL_PIXEL_PACK_BUFFER);
+                            ready[idx] = true;
                             if (pendingCount < PBO_COUNT) pendingCount++;
                         }
                         GL32.glBindBuffer(GL32.GL_PIXEL_PACK_BUFFER, 0);
@@ -162,9 +165,9 @@ public class HdrFrameCapture implements AutoCloseable {
                 GL32.glDeleteSync(fences[i]);
                 fences[i] = 0;
             }
-            if (results[i] != null) {
-                MemoryUtil.memFree(results[i]);
-                results[i] = null;
+            if (pooled[i] != null) {
+                MemoryUtil.memFree(pooled[i]);
+                pooled[i] = null;
             }
         }
         GL32.glDeleteBuffers(pboIds);

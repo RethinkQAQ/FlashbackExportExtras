@@ -1,9 +1,5 @@
 package com.rethinkqaq.flashbackplus.exporting;
 
-import java.nio.ByteBuffer;
-import java.util.ArrayDeque;
-import java.util.Deque;
-
 /**
  * Shared mutable state for HDR export (similar to DepthCaptureState).
  *
@@ -58,27 +54,6 @@ public class HdrExportState {
 
     // === Activation ===
 
-    /** Frame queue: HDR 16-bit data, produced by HdrFrameCapture, consumed by the encoder. */
-    private static final Deque<ByteBuffer> frameQueue = new ArrayDeque<>();
-
-    public static void enqueueFrame(ByteBuffer hdrData) {
-        synchronized (frameQueue) {
-            frameQueue.add(hdrData);
-        }
-    }
-
-    public static ByteBuffer dequeueFrame() {
-        synchronized (frameQueue) {
-            return frameQueue.poll();
-        }
-    }
-
-    public static int queuedFrameCount() {
-        synchronized (frameQueue) {
-            return frameQueue.size();
-        }
-    }
-
     public static void activate() {
         if (!isAvailable()) {
             throw new IllegalStateException("HDR export requires HDR Mod with HDR enabled");
@@ -88,10 +63,5 @@ public class HdrExportState {
 
     public static void deactivate() {
         active = false;
-        // Free any unconsumed frames
-        synchronized (frameQueue) {
-            frameQueue.forEach(org.lwjgl.system.MemoryUtil::memFree);
-            frameQueue.clear();
-        }
     }
 }
