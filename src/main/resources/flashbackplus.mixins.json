@@ -1,15 +1,17 @@
 {
   "required": true,
   "minVersion": "0.8",
+  "plugin": "com.rethinkqaq.flashbackplus.mixins.FlashbackPlusMixinConfigPlugin",
   "package": "com.rethinkqaq.flashbackplus.mixins",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "${java}",
   "client": [
     "MixinGameRenderer",
     "MixinStartExportWindow",
     "MixinFOVKeyframe"
   ],
   "mixins": [
-    "MixinExportJob"
+    "MixinExportJob",
+    "MixinHDRModConfig"
   ],
   "injectors": {
     "defaultRequire": 1

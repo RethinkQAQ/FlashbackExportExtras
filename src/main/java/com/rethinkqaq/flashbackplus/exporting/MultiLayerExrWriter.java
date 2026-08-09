@@ -127,7 +127,11 @@ public class MultiLayerExrWriter implements AutoCloseable {
         int pixelCount = width * height;
 
         // --- Pass 1: Bulk copy pixels, then extract RGBA in pure Java ---
+        /*? if >=1.21.4 {*/
+        /*int[] pixelArray = colorImage.getPixelsABGR();
+        *//*?} else {*/
         int[] pixelArray = colorImage.getPixelsRGBA();
+        /*?}*/
         for (int i = 0; i < pixelCount; i++) {
             int pixel = pixelArray[i];
             // 0xAABBGGRR → individual float channels

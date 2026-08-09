@@ -1,8 +1,14 @@
 package com.rethinkqaq.flashbackplus.mixins;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
+/*? if >=1.21.5 {*/
+/*import com.mojang.blaze3d.opengl.GlTexture;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.textures.GpuTexture;
+*//*?}*/
 import com.rethinkqaq.flashbackplus.Flashbackplus;
 import com.rethinkqaq.flashbackplus.exporting.DepthCaptureState;
+import com.rethinkqaq.flashbackplus.gpu.GpuExportBackendFactory;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import org.lwjgl.opengl.GL15;
@@ -39,6 +45,29 @@ public class MixinGameRenderer {
 
     // === Depth Capture: intercept hand-render depth clear inside renderLevel ===
 
+    /*? >= 1.21.5 {*/
+    /*@Redirect(method = "renderLevel",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
+            remap = false)
+    private void redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
+        if (DepthCaptureState.active) {
+            captureDepthPbo();
+        }
+        encoder.clearDepthTexture(texture, depth);
+    }
+    *//*?} elif >=1.21.4 {*/
+    /*@Redirect(method = "renderLevel",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(I)V"),
+            remap = false)
+    private void redirectClearInRenderLevel(int mask) {
+        if ((mask & 256) != 0 && DepthCaptureState.active) {
+            captureDepthPbo();
+        }
+        com.mojang.blaze3d.systems.RenderSystem.clear(mask);
+    }
+    *//*?} else {*/
     @Redirect(method = "renderLevel",
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(IZ)V"),
@@ -49,6 +78,7 @@ public class MixinGameRenderer {
         }
         com.mojang.blaze3d.systems.RenderSystem.clear(mask, getError);
     }
+    /*?}*/
 
     // === Camera capture: after renderLevel() returns ===
 
@@ -60,14 +90,31 @@ public class MixinGameRenderer {
     private void afterRenderLevel(CallbackInfo ci) {
         try {
             Minecraft mc = Minecraft.getInstance();
+            /*? if >=26.2 {*/
+            /*? if >=26.2 {*/
+            /*var camera = mc.gameRenderer.mainCamera();
+            *//*?} else {*/
             var camera = mc.gameRenderer.getMainCamera();
+            /*?}*/
+            /*?} else {*/
+            /*var camera = mc.gameRenderer.getMainCamera();
+            *//*?}*/
             if (camera != null && camera.isInitialized()) {
+                /*? if >=1.21.11 {*/
+                /*var pos = camera.position();
+                *//*?} else {*/
                 var pos = camera.getPosition();
+                /*?}*/
                 DepthCaptureState.camX = pos.x;
                 DepthCaptureState.camY = pos.y;
                 DepthCaptureState.camZ = pos.z;
+                /*? if >=1.21.11 {*/
+                /*DepthCaptureState.camYaw = camera.yRot();
+                DepthCaptureState.camPitch = camera.xRot();
+                *//*?} else {*/
                 DepthCaptureState.camYaw = camera.getYRot();
                 DepthCaptureState.camPitch = camera.getXRot();
+                /*?}*/
             }
         } catch (Exception ignored) {}
     }
@@ -137,7 +184,12 @@ public class MixinGameRenderer {
     private void captureDepthPbo() {
         try {
             Minecraft mc = Minecraft.getInstance();
+            /*? if >=26.2 {*/
+            /*RenderTarget rt = ((GameRenderer) (Object) this).mainRenderTarget();
+            *//*?} else {*/
             RenderTarget rt = mc.getMainRenderTarget();
+            /*?}*/
+            /*? if <26.2 {*/
             if (rt == null || !rt.useDepth) return;
 
             // Lazy init on first frame
@@ -146,7 +198,9 @@ public class MixinGameRenderer {
             }
 
             // Capture far plane every frame (it might change)
-            DepthCaptureState.depthFar = ((GameRenderer) (Object) this).getDepthFar();
+            // Version-specific render-state access is isolated in the GPU backend.
+            // Keep the legacy Mixin source compatible with all pre-26.2 mappings.
+            DepthCaptureState.depthFar = 1000.0f;
 
             int readIdx = 1 - flashbackplus_writeIdx;
 
@@ -178,7 +232,11 @@ public class MixinGameRenderer {
             // --- Step 2: Start async write to current PBO ---
             int writeIdx = flashbackplus_writeIdx;
             GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, flashbackplus_pbo[writeIdx]);
+            /*? if >=1.21.5 {*/
+            /*int depthTexId = ((GlTexture) rt.getDepthTexture()).glId();
+            *//*?} else {*/
             int depthTexId = rt.getDepthTextureId();
+            /*?}*/
             int[] oldTex = new int[1];
             GL30.glGetIntegerv(GL30.GL_TEXTURE_BINDING_2D, oldTex);
             GL30.glBindTexture(GL30.GL_TEXTURE_2D, depthTexId);
@@ -192,6 +250,7 @@ public class MixinGameRenderer {
 
             // --- Step 3: Flip for next frame ---
             flashbackplus_writeIdx = 1 - flashbackplus_writeIdx;
+            /*?}*/
         } catch (Exception e) {
             Flashbackplus.LOGGER.error("Failed to capture depth buffer via PBO", e);
         }

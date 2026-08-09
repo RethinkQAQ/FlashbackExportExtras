@@ -1,12 +1,16 @@
 package com.rethinkqaq.flashbackplus.mixins;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
+/*? if >=1.21.5 {*/
+/*import com.mojang.blaze3d.opengl.GlTexture;
+*//*?}*/
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.combo_options.VideoContainer;
 import com.moulberry.flashback.exporting.*;
 import com.rethinkqaq.flashbackplus.FlashbackPlusConfig;
 import com.rethinkqaq.flashbackplus.Flashbackplus;
 import com.rethinkqaq.flashbackplus.exporting.*;
+import com.rethinkqaq.flashbackplus.gpu.GpuExportBackendFactory;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -39,6 +43,7 @@ public class MixinExportJob {
     @Unique
     private boolean isHdrMode;
 
+    /*? if hdr {*/
     @Unique
     private HdrColorTransformShader hdrColorShader;
 
@@ -47,6 +52,7 @@ public class MixinExportJob {
 
     @Unique
     private HdrVideoWriter hdrWriterRef;
+    /*?}*/
 
     // === Redirect createVideoWriter ===
 
@@ -55,7 +61,11 @@ public class MixinExportJob {
                     target = "Lcom/moulberry/flashback/exporting/ExportJob;createVideoWriter(Lcom/moulberry/flashback/exporting/ExportSettings;Ljava/lang/String;)Lcom/moulberry/flashback/exporting/VideoWriter;"),
             remap = false)
     private VideoWriter redirectCreateWriter(ExportSettings settings, String tempFileName) throws IOException {
+        /*? if hdr {*/
         isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
+        /*?} else {*/
+        /*isHdrMode = false;
+        *//*?}*/
         isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
 
         if (isExrMode) {
@@ -64,6 +74,7 @@ public class MixinExportJob {
             int h = settings.resolutionY();
             return new ExrVideoWriter(outputDir, w, h);
         }
+        /*? if hdr {*/
         if (isHdrMode) {
             Path tempPath = java.nio.file.Path.of(tempFileName);
             int w = settings.resolutionX();
@@ -72,6 +83,7 @@ public class MixinExportJob {
             hdrWriterRef = new HdrVideoWriter(tempPath, w, h, settings.framerate());
             return hdrWriterRef;
         }
+        /*?}*/
         if (settings.container() == VideoContainer.PNG_SEQUENCE) {
             return new PNGSequenceVideoWriter(settings);
         } else {
@@ -85,7 +97,11 @@ public class MixinExportJob {
     private void onDoExportStart(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                   CallbackInfo ci) {
         isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr;
+        /*? if hdr {*/
         isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
+        /*?} else {*/
+        /*isHdrMode = false;
+        *//*?}*/
         DepthCaptureState.reset();
 
         ExportJob self = (ExportJob) (Object) this;
@@ -96,6 +112,7 @@ public class MixinExportJob {
             DepthCaptureState.active = true;
         }
 
+        /*? if hdr {*/
         if (isHdrMode) {
             int w = self.getWidth();
             int h = self.getHeight();
@@ -107,6 +124,7 @@ public class MixinExportJob {
             hdrFrameCapture = new HdrFrameCapture();
             Flashbackplus.LOGGER.info("HDR export: {}x{} peak={}nits", w, h, HdrExportState.getPeakBrightness());
         }
+        /*?}*/
 
         if (FlashbackPlusConfig.INSTANCE.exportCameraPath) {
             float aspectRatio = (float) settings.resolutionX() / (float) settings.resolutionY();
@@ -127,15 +145,24 @@ public class MixinExportJob {
             remap = false)
     private void beforeStartDownload(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                       CallbackInfo ci) {
+        /*? if hdr {*/
         if (!isHdrMode || hdrColorShader == null || hdrFrameCapture == null) return;
 
         // Get the main render target (MC renders into this during export)
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        /*? if >=26.2 {*/
+        /*com.mojang.blaze3d.pipeline.RenderTarget target = mc.gameRenderer.mainRenderTarget();
+        *//*?} else {*/
         com.mojang.blaze3d.pipeline.RenderTarget target = mc.getMainRenderTarget();
+        /*?}*/
         if (target == null) return;
 
         // Step 1: Color transform — scRGB-nl → BT.2020 + PQ
+        /*? if >=1.21.5 {*/
+        /*int srcTexId = ((GlTexture) target.getColorTexture()).glId();
+        *//*?} else {*/
         int srcTexId = target.getColorTextureId();
+        /*?}*/
         float peak = HdrExportState.getPeakBrightness();
         int hdrTexId = hdrColorShader.render(srcTexId, peak);
 
@@ -147,6 +174,7 @@ public class MixinExportJob {
         if (hdrData != null && hdrWriterRef != null) {
             hdrWriterRef.addHdrFrame(hdrData);
         }
+        /*?}*/
     }
 
     // === Camera capture: inject AFTER startDownload ===
@@ -177,6 +205,7 @@ public class MixinExportJob {
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;encode(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/nio/FloatBuffer;)V"),
             remap = false)
     private void onVideoEncode(VideoWriter videoWriter, NativeImage image, FloatBuffer audioBuffer) {
+        /*? if hdr {*/
         if (isHdrMode) {
             // Normal pipeline's NativeImage is unused in HDR mode.
             // Explicitly free to prevent native memory accumulation (GC finalizer is too slow).
@@ -184,6 +213,9 @@ public class MixinExportJob {
         } else {
             videoWriter.encode(image, audioBuffer);
         }
+        /*?} else {*/
+        /*videoWriter.encode(image, audioBuffer);
+        *//*?}*/
     }
 
     // === doExport RETURN: cleanup ===
@@ -207,6 +239,7 @@ public class MixinExportJob {
         }
 
         // Drain remaining HDR frames
+        /*? if hdr {*/
         if (isHdrMode && hdrFrameCapture != null) {
             ByteBuffer remaining = hdrFrameCapture.collect();
             if (remaining != null && hdrWriterRef != null) {
@@ -217,7 +250,9 @@ public class MixinExportJob {
                 if (hdrWriterRef != null) hdrWriterRef.addHdrFrame(remaining);
             }
         }
+        /*?}*/
 
+        /*? if hdr {*/
         // HDR cleanup
         if (hdrColorShader != null) {
             hdrColorShader.close();
@@ -228,11 +263,15 @@ public class MixinExportJob {
             hdrFrameCapture = null;
         }
         HdrExportState.deactivate();
+        /*?}*/
 
         DepthCaptureState.reset();
+        GpuExportBackendFactory.reset();
         cameraExporter = null;
         isExrMode = false;
         isHdrMode = false;
+        /*? if hdr {*/
         hdrWriterRef = null;
+        /*?}*/
     }
 }

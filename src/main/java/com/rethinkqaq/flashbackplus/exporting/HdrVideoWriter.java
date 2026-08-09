@@ -11,6 +11,7 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Consumer;
 
 /**
  * HDR VideoWriter for HDR10 export.
@@ -99,7 +100,11 @@ public class HdrVideoWriter implements VideoWriter {
     }
 
     @Override
+    /*? if >=1.21.5 {*/
+    /*public void finish(Consumer<String> statusConsumer) {
+    *//*?} else {*/
     public void finish() {
+    /*?}*/
         if (finished) return;
         finished = true;
         if (ffmpegStdin != null) {

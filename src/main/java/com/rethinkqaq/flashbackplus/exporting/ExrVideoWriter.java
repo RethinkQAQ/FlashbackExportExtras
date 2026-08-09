@@ -8,6 +8,7 @@ import com.rethinkqaq.flashbackplus.Flashbackplus;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.nio.file.Path;
+import java.util.function.Consumer;
 
 /**
  * VideoWriter implementation that writes multi-layer OpenEXR frames
@@ -45,7 +46,11 @@ public class ExrVideoWriter implements VideoWriter {
     }
 
     @Override
+    /*? if >=1.21.5 {*/
+    /*public void finish(Consumer<String> statusConsumer) {
+    *//*?} else {*/
     public void finish() {
+    /*?}*/
         exrWriter.close();
     }
 

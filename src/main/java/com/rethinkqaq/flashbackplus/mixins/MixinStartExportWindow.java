@@ -65,6 +65,7 @@ public class MixinStartExportWindow {
             ci.cancel();
         }
 
+        /*? if hdr {*/
         // === HDR Export option (only shown when HDR Mod is available) ===
         if (HdrExportState.isAvailable()) {
             ImGui.spacing();
@@ -104,6 +105,7 @@ public class MixinStartExportWindow {
                 }
             }
         }
+        /*?}*/
     }
 
     // === Camera path options: injected before the start/queue buttons ===
