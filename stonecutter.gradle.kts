@@ -9,6 +9,7 @@ stonecutter parameters {
     swaps["minecraft"] = "\"${node.metadata.version}\";"
     constants["release"] = true
     constants["hdr"] = node.metadata.version !in setOf("1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8")
+    constants["depth_export"] = node.metadata.version != "26.1.2"
     dependencies["fapi"] = node.project.property("deps.fabric_api") as String
 
     replacements {
@@ -17,21 +18,6 @@ stonecutter parameters {
                 "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lcom/mojang/blaze3d/pipeline/RenderTarget;",
                 "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lnet/minecraft/class_276;"
             )
-        }
-
-        string(current.parsed >= "26.1") {
-            replace(
-                "return new LegacyOpenGlExportBackend();",
-                "return new Blaze3dExportBackend();"
-            )
-        }
-
-        string(current.parsed >= "26.2") {
-            replace(
-                "mc.getMainRenderTarget()",
-                "((GameRenderer) (Object) this).mainRenderTarget()"
-            )
-            replace("if (flashbackplus_deferDepth) return;", "if (true) return;")
         }
 
         string(current.parsed >= "1.21.11") {

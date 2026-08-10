@@ -27,6 +27,15 @@ public interface GpuExportBackend extends AutoCloseable {
     /** Drain pending GPU readback before the EXR writer is finalized. */
     default void flush() { endFrame(); }
 
+    /**
+     * Releases GPU objects from the render thread. Returning {@code false}
+     * keeps this backend queued until outstanding GPU work completes.
+     */
+    default boolean releaseOnRenderThread() {
+        close();
+        return true;
+    }
+
     @Override
     void close();
 }

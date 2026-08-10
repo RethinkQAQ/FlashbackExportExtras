@@ -53,7 +53,13 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     private GpuTextureView depthCopyView;
     private RenderPipeline depthCopyPipeline;
     ^//^?}^/
-    @Override public boolean supportsDepthReadback() { return true; }
+    @Override public boolean supportsDepthReadback() {
+        /^? if >=26.2 {^/
+        /^return true;
+        ^//^?} else {^/
+        return false;
+        /^?}^/
+    }
     @Override public boolean supportsHdr() {
         /^? if >=26.2 {^/
         /^return true;
@@ -69,17 +75,17 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         /^if (target == null || !target.useDepth || target.getDepthTexture() == null || depthReadbackFailed) return;
         try {
             RenderSystem.assertOnRenderThread();
-            ensureDepthBuffers(width, height);
+            if (!ensureDepthBuffers(width, height)) return;
 
             // Keep the snapshot unnumbered until ExportJob starts the matching
             // colour download. Minecraft clears this attachment immediately
             // after the world pass, so it cannot be read at startDownload.
             if (pendingWorldDepthIndex >= 0) {
-                discardDepthCopy(pendingWorldDepthIndex);
+                if (!discardDepthCopy(pendingWorldDepthIndex)) return;
                 pendingWorldDepthIndex = -1;
             }
             int index = writeIndex;
-            if (depthFences[index] != null) discardDepthCopy(index);
+            if (depthFences[index] != null && !discardDepthCopy(index)) return;
 
             ensureDepthCopyTarget(width, height);
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
@@ -115,7 +121,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         if (depthReadbackFailed) return;
         try {
             RenderSystem.assertOnRenderThread();
-            ensureDepthBuffers(width, height);
+            if (!ensureDepthBuffers(width, height)) return;
             collectDepth();
             int index = writeIndex;
             if (depthFences[index] != null) return;
@@ -168,13 +174,18 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         readDepthCopy(index, frameId, 1_000_000_000L);
     }
 
-    private void discardDepthCopy(int index) {
+    private boolean discardDepthCopy(int index) {
         GpuFence fence = depthFences[index];
-        if (fence == null) return;
-        fence.awaitCompletion(1_000_000_000L);
+        if (fence == null) return true;
+        if (!fence.awaitCompletion(1_000_000_000L)) {
+            com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
+                    "World-depth GPU snapshot is still pending; deferring replacement of buffer {}", index);
+            return false;
+        }
         fence.close();
         depthFences[index] = null;
         depthFrameIds[index] = -1L;
+        return true;
     }
 
     private void readDepthCopy(int index, long frameId, long timeoutNanos) {
@@ -224,18 +235,20 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             }
             encoder.copyTextureToBuffer(hdrCopyTexture, hdrReadbackBuffer, 0L, () -> {}, 0);
             GpuFence fence = encoder.createFence();
-            encoder.submit();
-            if (!fence.awaitCompletion(1_000_000_000L)) {
-                com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn("HDR GPU readback did not complete in time");
-                return null;
-            }
-            try (GpuBufferSlice.MappedView mapped = hdrReadbackBuffer.slice().map(true, false)) {
-                ByteBuffer source = mapped.data().duplicate();
-                source.rewind();
-                ByteBuffer result = MemoryUtil.memAlloc(width * height * 8);
-                result.put(source);
-                result.rewind();
-                return result;
+            try {
+                encoder.submit();
+                if (!fence.awaitCompletion(1_000_000_000L)) {
+                    com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn("HDR GPU readback did not complete in time");
+                    return null;
+                }
+                try (GpuBufferSlice.MappedView mapped = hdrReadbackBuffer.slice().map(true, false)) {
+                    ByteBuffer source = mapped.data().duplicate();
+                    source.rewind();
+                    ByteBuffer result = MemoryUtil.memAlloc(width * height * 8);
+                    result.put(source);
+                    result.rewind();
+                    return result;
+                }
             } finally {
                 fence.close();
             }
@@ -294,9 +307,13 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         hdrCopyPipeline = null;
     }
     ^//^?}^/
-    private void ensureDepthBuffers(int newWidth, int newHeight) {
-        if (width == newWidth && height == newHeight && depthBuffers[0] != null) return;
-        closeDepthBuffers();
+    private boolean ensureDepthBuffers(int newWidth, int newHeight) {
+        if (width == newWidth && height == newHeight && depthBuffers[0] != null) return true;
+        if (!closeDepthBuffers()) {
+            com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
+                    "Deferring depth-buffer resize until pending GPU copies complete");
+            return false;
+        }
         width = newWidth;
         height = newHeight;
         long size = (long) newWidth * newHeight * 4L;
@@ -306,6 +323,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
                     GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_MAP_READ,
                     size);
         }
+        return true;
     }
 
     private void collectDepth() {
@@ -376,15 +394,21 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     }
     ^//^?}^/
 
-    private void closeDepthBuffers() {
+    private boolean closeDepthBuffers() {
+        boolean pending = false;
         for (int i = 0; i < BUFFER_COUNT; i++) {
-            if (depthFences[i] != null && depthFences[i].awaitCompletion(0L)) depthFences[i].close();
-            if (depthFences[i] == null && depthBuffers[i] != null) depthBuffers[i].close();
+            if (depthFences[i] != null && !depthFences[i].awaitCompletion(0L)) {
+                pending = true;
+                continue;
+            }
+            if (depthFences[i] != null) depthFences[i].close();
+            if (depthBuffers[i] != null) depthBuffers[i].close();
             depthFences[i] = null;
             depthBuffers[i] = null;
             depthFrameIds[i] = -1L;
         }
-        writeIndex = 0;
+        if (!pending) writeIndex = 0;
+        return !pending;
     }
 
     @Override public void endFrame() { collectDepth(); }
@@ -395,11 +419,9 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             if (depthFences[i] != null) collectDepth(i, 1_000_000_000L);
         }
     }
-    @Override public void close() {
-        // ExportJob.doExport returns on its worker executor. GPU objects must only
-        // be destroyed while the render thread/context is still alive.
-        if (!RenderSystem.isOnRenderThread()) return;
-        closeDepthBuffers();
+    @Override public boolean releaseOnRenderThread() {
+        if (!RenderSystem.isOnRenderThread()) return false;
+        if (!closeDepthBuffers()) return false;
         /^? if >=26.2 {^/
         /^if (depthCopyView != null) depthCopyView.close();
         if (depthCopyTexture != null) depthCopyTexture.close();
@@ -407,6 +429,11 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         depthCopyTexture = null;
         closeHdrTarget();
         ^//^?}^/
+        return true;
+    }
+
+    @Override public void close() {
+        releaseOnRenderThread();
     }
 
     private void logDepthReadback(java.nio.FloatBuffer data, int bufferIndex) {

@@ -1,5 +1,7 @@
 package com.rethinkqaq.flashbackplus.exporting;
 
+//? if <26.2 {
+
 import net.minecraft.client.Minecraft;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -110,3 +112,4 @@ public class HdrColorTransformShader implements AutoCloseable {
         program = vbo = vao = fbo = texture = -1;
     }
 }
+//?}

@@ -22,6 +22,10 @@ public class MixinMinecraftShutdown {
         try {
             DepthCaptureState.reset();
             GpuExportBackendFactory.reset();
+            // Minecraft.close runs before the render device is torn down. Drain
+            // resources now; unfinished fences stay queued rather than being
+            // accessed from an arbitrary worker thread.
+            GpuExportBackendFactory.releasePendingOnRenderThread();
         } catch (Throwable t) {
             Flashbackplus.LOGGER.warn("Failed to clean Flashback Plus GPU resources during shutdown", t);
         }

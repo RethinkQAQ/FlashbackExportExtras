@@ -70,10 +70,19 @@ public class MixinStartExportWindow {
             FlashbackPlusConfig.save();
         }
         ImGui.sameLine();
-        if (ImGui.radioButton(I18n.get("flashbackplus.format_exr"), isExr)) {
+        /*? if depth_export {*/
+        /*if (ImGui.radioButton(I18n.get("flashbackplus.format_exr"), isExr)) {
             FlashbackPlusConfig.INSTANCE.exportAsExr = true;
             FlashbackPlusConfig.save();
         }
+        *//*?} else {*/
+        if (isExr) {
+            FlashbackPlusConfig.INSTANCE.exportAsExr = false;
+            FlashbackPlusConfig.save();
+        }
+        ImGui.textDisabled(I18n.get("flashbackplus.format_exr"));
+        ImGui.textWrapped(I18n.get("flashbackplus.exr_unavailable_2612"));
+        /*?}*/
 
         if (FlashbackPlusConfig.INSTANCE.exportAsExr) {
             // Force container to PNG_SEQUENCE (triggers folder picker)

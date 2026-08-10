@@ -1,5 +1,7 @@
 package com.rethinkqaq.flashbackplus.exporting;
 
+//? if <26.2 {
+
 import com.mojang.blaze3d.systems.RenderSystem;
 import org.lwjgl.opengl.GL32;
 import org.lwjgl.system.MemoryUtil;
@@ -174,3 +176,4 @@ public class HdrFrameCapture implements AutoCloseable {
         initialized = false;
     }
 }
+//?}

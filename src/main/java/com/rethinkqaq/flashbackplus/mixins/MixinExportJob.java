@@ -50,11 +50,13 @@ public class MixinExportJob {
     private boolean flashbackplus_dummyFramesOverridden;
 
     /*? if hdr {*/
+    /*? if <26.2 {*/
     @Unique
     private HdrColorTransformShader hdrColorShader;
 
     @Unique
     private HdrFrameCapture hdrFrameCapture;
+    /*?}*/
 
     @Unique
     private HdrVideoWriter hdrWriterRef;
@@ -76,6 +78,14 @@ public class MixinExportJob {
         /*isHdrMode = false;
         *//*?}*/
         isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
+        /*? if depth_export {*/
+        /*// This version has a complete depth readback implementation.
+        *//*?} else {*/
+        if (isExrMode) {
+            isExrMode = false;
+            Flashbackplus.LOGGER.warn("OpenEXR export is disabled on 26.1.2: its Blaze3D depth readback is incomplete");
+        }
+        /*?}*/
 
         if (isExrMode) {
             Path outputDir = settings.output();
@@ -119,6 +129,14 @@ public class MixinExportJob {
         // Keep the mode decision identical to redirectCreateWriter. HDR takes
         // precedence, so it must not accidentally activate depth capture.
         isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
+        /*? if depth_export {*/
+        /*// This version has a complete depth readback implementation.
+        *//*?} else {*/
+        if (isExrMode) {
+            isExrMode = false;
+            Flashbackplus.LOGGER.warn("OpenEXR export request rejected on 26.1.2: depth readback is unavailable");
+        }
+        /*?}*/
         if (isExrMode) {
             com.moulberry.flashback.configuration.FlashbackConfigV1 config =
                     com.moulberry.flashback.Flashback.getConfig();
@@ -146,8 +164,10 @@ public class MixinExportJob {
             HdrExportState.height = h;
             HdrExportState.setPeakBrightness((float) FlashbackPlusConfig.INSTANCE.hdrPeakBrightness);
             HdrExportState.activate();
+            /*? if <26.2 {*/
             hdrColorShader = new HdrColorTransformShader();
             hdrFrameCapture = new HdrFrameCapture();
+            /*?}*/
             Flashbackplus.LOGGER.info("HDR export: {}x{} peak={}nits", w, h, HdrExportState.getPeakBrightness());
         }
         /*?}*/
@@ -188,10 +208,12 @@ public class MixinExportJob {
         if (!isHdrMode) return;
 
         // Get the main render target (MC renders into this during export)
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         /*? if >=26.2 {*/
-        /*com.mojang.blaze3d.pipeline.RenderTarget target = mc.gameRenderer.mainRenderTarget();
+        /*com.mojang.blaze3d.pipeline.RenderTarget target =
+                ((net.minecraft.client.renderer.GameRenderer) (Object) net.minecraft.client.Minecraft.getInstance().gameRenderer)
+                        .mainRenderTarget();
         *//*?} else {*/
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         com.mojang.blaze3d.pipeline.RenderTarget target = mc.getMainRenderTarget();
         /*?}*/
         if (target == null) return;
@@ -338,6 +360,7 @@ public class MixinExportJob {
         /*?}*/
 
         /*? if hdr {*/
+        /*? if <26.2 {*/
         // HDR cleanup
         if (hdrColorShader != null) {
             hdrColorShader.close();
@@ -347,6 +370,7 @@ public class MixinExportJob {
             hdrFrameCapture.close();
             hdrFrameCapture = null;
         }
+        /*?}*/
         HdrExportState.deactivate();
         /*?}*/
 

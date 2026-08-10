@@ -143,6 +143,13 @@ if (minecraftCompatibility != null) {
     }
 }
 
+if (sc.current.parsed >= "26.2") {
+    sourceSets.named("main") {
+        java.exclude("**/HdrColorTransformShader.java")
+        java.exclude("**/HdrFrameCapture.java")
+    }
+}
+
 tasks {
 
     register<Copy>("buildAndCollect") {
