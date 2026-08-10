@@ -26,21 +26,26 @@ public class HdrVideoWriter implements VideoWriter {
     private final int width;
     private final int height;
     private final double framerate;
+    private final int bitrate;
     private final int frameSize;
     private final byte[] frameBytes;  // reusable write buffer
     private Process ffmpegProcess;
     private OutputStream ffmpegStdin;
     private int frameCount;
     private boolean finished;
+    private boolean pipeFailed;
 
-    public HdrVideoWriter(Path outputPath, int width, int height, double framerate) throws IOException {
+    public HdrVideoWriter(Path outputPath, int width, int height, double framerate, int bitrate) throws IOException {
         this.outputPath = outputPath;
         this.width = width;
         this.height = height;
         this.framerate = framerate;
+        this.bitrate = bitrate;
         this.frameSize = width * height * 8;
         this.frameBytes = new byte[frameSize];
         Files.createDirectories(outputPath.getParent());
+        Flashbackplus.LOGGER.info("HDR encoder requested bitrate: {} bps ({} Mbps)",
+                bitrate, bitrate / 1_000_000.0);
         Flashbackplus.LOGGER.info("HDR video export: {}x{} @ {}fps → {}",
                 width, height, framerate, outputPath);
     }
@@ -57,14 +62,20 @@ public class HdrVideoWriter implements VideoWriter {
             "-framerate", String.valueOf((int) framerate),
             "-i", "pipe:0",
             "-c:v", "libx265",
-            "-crf", "16",
             "-preset", "medium",
+            "-b:v", String.valueOf(bitrate),
+            "-minrate", String.valueOf(bitrate),
+            "-maxrate", String.valueOf(bitrate),
+            "-bufsize", String.valueOf(bitrate),
             "-pix_fmt", "yuv420p10le",
             "-color_primaries", "bt2020",
             "-color_trc", "smpte2084",
             "-colorspace", "bt2020c",
             "-color_range", "pc",
-            "-x265-params", "hdr-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+            "-x265-params", "hdr-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc"
+                    + ":nal-hrd=cbr:vbv-maxrate=" + Math.max(1, bitrate / 1000)
+                    + ":vbv-bufsize=" + Math.max(1, bitrate / 1000)
+                    + ":filler=1",
             outputStr
         );
         pb.redirectError(ProcessBuilder.Redirect.INHERIT);
@@ -76,21 +87,25 @@ public class HdrVideoWriter implements VideoWriter {
      * Writes a 16-bit RGBA frame directly to FFmpeg stdin, then frees it.
      */
     public void addHdrFrame(ByteBuffer hdrData) {
-        if (finished) {
+        if (finished || pipeFailed) {
             MemoryUtil.memFree(hdrData);
             return;
         }
+        boolean bufferOwned = true;
         try {
             ensureStarted();
             // Copy to reusable buffer and free immediately
             hdrData.rewind();
             hdrData.get(frameBytes);
             MemoryUtil.memFree(hdrData);
+            bufferOwned = false;
             ffmpegStdin.write(frameBytes);
             frameCount++;
         } catch (IOException e) {
+            pipeFailed = true;
             Flashbackplus.LOGGER.error("HDR export: pipe write failed at frame {}", frameCount, e);
-            MemoryUtil.memFree(hdrData);
+            if (bufferOwned) MemoryUtil.memFree(hdrData);
+            if (ffmpegProcess != null) ffmpegProcess.destroy();
         }
     }
 
@@ -107,6 +122,11 @@ public class HdrVideoWriter implements VideoWriter {
     /*?}*/
         if (finished) return;
         finished = true;
+        if (pipeFailed) {
+            if (ffmpegProcess != null) ffmpegProcess.destroy();
+            Flashbackplus.LOGGER.warn("HDR export aborted after FFmpeg pipe failure at frame {}", frameCount);
+            return;
+        }
         if (ffmpegStdin != null) {
             try { ffmpegStdin.flush(); ffmpegStdin.close(); } catch (IOException ignored) {}
         }

@@ -1,3 +1,5 @@
+import org.gradle.language.jvm.tasks.ProcessResources
+
 plugins {
     // Applies the correct Loom variant for the active Minecraft version.
     id("dev.kikugie.loom-back-compat")
@@ -30,6 +32,12 @@ dependencies {
     modImplementation("net.fabricmc.fabric-api:fabric-api:$fabricApiVersion")
     modImplementation("maven.modrinth:flashback:${property("deps.flashback")}-fabric,${sc.current.version}")
 
+    // Flashback's release jar contains these nested libraries, but Loom's
+    // development runtime does not expose nested jars from the exploded mod.
+    // Keep the same versions available both in runClient and in our final jar.
+    modLocalRuntime("org.apache.httpcomponents:httpclient:4.5.14")
+    modLocalRuntime("org.apache.httpcomponents:httpcore:4.4.16")
+
     modLocalRuntime("com.moulberry:mixinconstraints:1.0.8")
     if (sc.current.parsed < "26.1") {
         // Flashback 0.42.x embeds its 26.1-specific Lattice version.
@@ -46,7 +54,10 @@ dependencies {
         modImplementation("dev.architectury:architectury-fabric:${property("deps.architectury")}")
     }
 
-    val lwjglVersion = "3.3.3"
+    // 26.x ships LWJGL 3.4.1. TinyEXR must use the same binding version as
+    // Minecraft's LWJGL core; mixing 3.3.3 TinyEXR with 3.4.1 core fails at
+    // runtime with EXRHeader.NoSuchFieldError (Unsafe field layout changed).
+    val lwjglVersion = if (sc.current.parsed >= "26.1") "3.4.1" else "3.3.3"
     val lwjglNatives = when {
         org.gradle.internal.os.OperatingSystem.current().isMacOsX ->
             if (org.gradle.internal.os.OperatingSystem.current().nativePrefix.contains("aarch64")) {
@@ -103,40 +114,42 @@ if (sc.current.parsed < "26.1") {
     }
 }
 
-tasks {
-    processResources {
-        val modId = project.property("mod.id") as String
-        val modName = project.property("mod.name") as String
-        val modVersion = project.property("mod.version") as String
-        val minecraftCompatibility = project.property("mod.mc_compat") as String
-        val loaderVersion = project.property("deps.fabric_loader") as String
+// Read Stonecutter's version properties before entering the task action.
+// The values are plain strings, so the task configuration remains safe for
+// Gradle's configuration cache while still seeing properties injected by the
+// version subproject.
+val minecraftCompatibility = findProperty("mod.mc_compat") as String?
+if (minecraftCompatibility != null) {
+    val resourceProperties = mapOf(
+        "id" to (findProperty("mod.id") as String),
+        "name" to (findProperty("mod.name") as String),
+        "version" to (findProperty("mod.version") as String),
+        "minecraft" to minecraftCompatibility,
+        "loader" to (findProperty("deps.fabric_loader") as String)
+    )
+    val mixinResourceProperties = mapOf("java" to "JAVA_${requiredJava.majorVersion}")
 
-        inputs.property("id", modId)
-        inputs.property("name", modName)
-        inputs.property("version", modVersion)
-        inputs.property("minecraft", minecraftCompatibility)
-        inputs.property("loader", loaderVersion)
+    tasks.withType<ProcessResources>().configureEach {
+        inputs.properties(resourceProperties)
+        inputs.properties(mixinResourceProperties)
 
         filesMatching("fabric.mod.json") {
-            expand(
-                "id" to modId,
-                "name" to modName,
-                "version" to modVersion,
-                "minecraft" to minecraftCompatibility,
-                "loader" to loaderVersion
-            )
+            expand(resourceProperties)
         }
 
         filesMatching("*.mixins.json") {
-            expand("java" to "JAVA_${requiredJava.majorVersion}")
+            expand(mixinResourceProperties)
         }
     }
+}
+
+tasks {
 
     register<Copy>("buildAndCollect") {
         group = "build"
         description = "Builds mod jars and copies results to build/libs/{mod version}/"
         from(loomx.modJar.flatMap { it.archiveFile }, loomx.modSourcesJar.flatMap { it.archiveFile })
-        val modVersion = project.property("mod.version") as String
+        val modVersion = providers.gradleProperty("mod.version").get()
         into(rootProject.layout.buildDirectory.dir("libs/$modVersion"))
     }
 }

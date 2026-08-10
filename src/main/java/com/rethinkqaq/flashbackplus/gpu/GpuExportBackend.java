@@ -9,11 +9,23 @@ public interface GpuExportBackend extends AutoCloseable {
     boolean supportsDepthReadback();
     boolean supportsHdr();
 
+    default boolean capturesBeforeDepthClear() { return false; }
+
+    /**
+     * Snapshot the world depth attachment before Minecraft clears it for the
+     * hand and GUI passes. Backends that do not need a GPU-side snapshot keep
+     * the default no-op implementation.
+     */
+    default void snapshotWorldDepth(RenderTarget target, int width, int height, float depthFar) {}
+
     void captureDepth(RenderTarget target, int width, int height, float depthFar);
 
     ByteBuffer captureHdr(RenderTarget target, int width, int height, float peakBrightness);
 
     void endFrame();
+
+    /** Drain pending GPU readback before the EXR writer is finalized. */
+    default void flush() { endFrame(); }
 
     @Override
     void close();

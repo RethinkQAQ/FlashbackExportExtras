@@ -50,7 +50,19 @@ public class DepthCaptureState {
     public static volatile float camYaw, camPitch;
 
     /** FIFO queue of captured depth buffers, consumed at encode time. */
-    public static final Deque<FloatBuffer> depthQueue = new ArrayDeque<>();
+    public static final Deque<DepthFrame> depthQueue = new ArrayDeque<>();
+    /**
+     * The world-depth snapshot taken immediately before Minecraft clears the
+     * depth attachment for hand rendering. It is intentionally unnumbered:
+     * ExportJob assigns the output frame ID only when it starts downloading
+     * the corresponding color image.
+     */
+    private static FloatBuffer pendingWorldDepth;
+    private static long nextDepthFrameId;
+    private static long nextExportFrameId;
+
+    /** Frame ID explicitly requested by ExportJob for the frame being rendered. */
+    public static volatile long requestedFrameId = -1L;
 
     // === Buffer pool for PBO readback copies ===
     private static final int POOL_CAPACITY = 4;
@@ -80,6 +92,41 @@ public class DepthCaptureState {
         }
     }
 
+    public static synchronized long nextDepthFrameId() {
+        return nextDepthFrameId++;
+    }
+
+    public static synchronized long nextExportFrameId() {
+        return nextExportFrameId++;
+    }
+
+    /** Uses the export frame ID when one is active, otherwise a standalone depth ID. */
+    public static synchronized long captureFrameId() {
+        return requestedFrameId >= 0L ? requestedFrameId : nextDepthFrameId++;
+    }
+
+    public static synchronized void replacePendingWorldDepth(FloatBuffer data) {
+        FloatBuffer previous = pendingWorldDepth;
+        pendingWorldDepth = data;
+        if (previous != null) releaseBuffer(previous);
+    }
+
+    public static synchronized FloatBuffer takePendingWorldDepth() {
+        FloatBuffer data = pendingWorldDepth;
+        pendingWorldDepth = null;
+        return data;
+    }
+
+    public static final class DepthFrame {
+        public final long frameId;
+        public final FloatBuffer data;
+
+        public DepthFrame(long frameId, FloatBuffer data) {
+            this.frameId = frameId;
+            this.data = data;
+        }
+    }
+
     /** Runnable to clean up PBOs on export end. Set by MixinGameRenderer. */
     public static volatile Runnable pboCleanup = null;
 
@@ -93,9 +140,18 @@ public class DepthCaptureState {
         camX = camY = camZ = 0.0;
         camYaw = camPitch = 0.0f;
         depthFar = 1000.0f;
+        nextDepthFrameId = 0;
+        nextExportFrameId = 0;
+        requestedFrameId = -1L;
+
+        FloatBuffer pending = takePendingWorldDepth();
+        releaseBuffer(pending);
 
         synchronized (depthQueue) {
-            depthQueue.clear();
+            DepthFrame frame;
+            while ((frame = depthQueue.pollFirst()) != null) {
+                releaseBuffer(frame.data);
+            }
         }
         synchronized (bufferPool) {
             bufferPool.clear();

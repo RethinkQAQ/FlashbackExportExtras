@@ -6,6 +6,8 @@
   "compatibilityLevel": "${java}",
   "client": [
     "MixinGameRenderer",
+    "AsyncFileDialogsAccessor",
+    "MixinMinecraftShutdown",
     "MixinStartExportWindow",
     "MixinFOVKeyframe"
   ],

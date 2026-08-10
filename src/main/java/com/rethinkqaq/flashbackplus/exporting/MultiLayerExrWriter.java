@@ -45,6 +45,7 @@ public class MultiLayerExrWriter implements AutoCloseable {
     private final boolean linearizeDepth;
     private int frameCount;
     private boolean closed = false;
+    private int depthDebugFrame;
 
     // === Pre-allocated pixel buffers (reused every frame) ===
     private final FloatBuffer rBuf, gBuf, bBuf, aBuf, zBuf;
@@ -168,6 +169,33 @@ public class MultiLayerExrWriter implements AutoCloseable {
                 }
             }
         }
+
+        logDepthOutput();
+    }
+
+    private void logDepthOutput() {
+        int frame = depthDebugFrame++;
+        if (frame >= 3 && frame % 30 != 0) return;
+
+        float min = Float.POSITIVE_INFINITY;
+        float max = Float.NEGATIVE_INFINITY;
+        int finite = 0;
+        int count = zBuf.capacity();
+        for (int i = 0; i < count; i++) {
+            float value = zBuf.get(i);
+            if (Float.isFinite(value)) {
+                min = Math.min(min, value);
+                max = Math.max(max, value);
+                finite++;
+            }
+        }
+
+        int center = Math.max(0, Math.min(count - 1, (height / 2) * width + width / 2));
+        int quarter = Math.max(0, Math.min(count - 1, (height / 4) * width + width / 4));
+        com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.info(
+                "EXR depth output #{}: linearize={}, finite={}/{}, min={}, max={}, q1={}, center={}, q3={}",
+                frame, linearizeDepth, finite, count, min, max,
+                zBuf.get(quarter), zBuf.get(center), zBuf.get(Math.max(0, count - 1 - quarter)));
     }
 
     /**
@@ -185,7 +213,9 @@ public class MultiLayerExrWriter implements AutoCloseable {
         header.num_channels(NUM_CHANNELS);
         header.pixel_types(pixelTypes);
         header.requested_pixel_types(requestedTypes);
-        header.compression_type(TinyEXR.TINYEXR_COMPRESSIONTYPE_NONE);
+        // Lossless ZIP compression keeps the Blender-oriented multi-layer
+        // layout intact while substantially reducing disk bandwidth.
+        header.compression_type(TinyEXR.TINYEXR_COMPRESSIONTYPE_ZIP);
 
         image.width(width);
         image.height(height);

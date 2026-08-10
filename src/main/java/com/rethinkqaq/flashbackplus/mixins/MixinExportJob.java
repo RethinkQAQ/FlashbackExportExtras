@@ -43,6 +43,12 @@ public class MixinExportJob {
     @Unique
     private boolean isHdrMode;
 
+    @Unique
+    private int flashbackplus_originalDummyFrames;
+
+    @Unique
+    private boolean flashbackplus_dummyFramesOverridden;
+
     /*? if hdr {*/
     @Unique
     private HdrColorTransformShader hdrColorShader;
@@ -61,6 +67,9 @@ public class MixinExportJob {
                     target = "Lcom/moulberry/flashback/exporting/ExportJob;createVideoWriter(Lcom/moulberry/flashback/exporting/ExportSettings;Ljava/lang/String;)Lcom/moulberry/flashback/exporting/VideoWriter;"),
             remap = false)
     private VideoWriter redirectCreateWriter(ExportSettings settings, String tempFileName) throws IOException {
+        Flashbackplus.LOGGER.info(
+                "ExportJob creating writer: output={}, container={}, resolution={}x{}, temp={}",
+                settings.output(), settings.container(), settings.resolutionX(), settings.resolutionY(), tempFileName);
         /*? if hdr {*/
         isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
         /*?} else {*/
@@ -80,7 +89,11 @@ public class MixinExportJob {
             int w = settings.resolutionX();
             int h = settings.resolutionY();
             Flashbackplus.LOGGER.info("HDR export temp: {} → final: {}", tempPath, settings.output());
-            hdrWriterRef = new HdrVideoWriter(tempPath, w, h, settings.framerate());
+            int bitrate = settings.bitrate() > 0
+                    ? settings.bitrate()
+                    : Math.min(288_000_000,
+                            5_000 + (int) Math.ceil(w * (double) h * settings.framerate()));
+            hdrWriterRef = new HdrVideoWriter(tempPath, w, h, settings.framerate(), bitrate);
             return hdrWriterRef;
         }
         /*?}*/
@@ -96,12 +109,25 @@ public class MixinExportJob {
     @Inject(method = "doExport", at = @At("HEAD"), remap = false)
     private void onDoExportStart(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                   CallbackInfo ci) {
-        isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr;
+        Flashbackplus.LOGGER.info("ExportJob doExport started: writer={}",
+                videoWriter == null ? "null" : videoWriter.getClass().getName());
         /*? if hdr {*/
         isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
         /*?} else {*/
         /*isHdrMode = false;
         *//*?}*/
+        // Keep the mode decision identical to redirectCreateWriter. HDR takes
+        // precedence, so it must not accidentally activate depth capture.
+        isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
+        if (isExrMode) {
+            com.moulberry.flashback.configuration.FlashbackConfigV1 config =
+                    com.moulberry.flashback.Flashback.getConfig();
+            flashbackplus_originalDummyFrames = config.exporting.exportRenderDummyFrames;
+            config.exporting.exportRenderDummyFrames = 0;
+            flashbackplus_dummyFramesOverridden = true;
+            Flashbackplus.LOGGER.info("EXR export: disabled {} Flashback warm-up frame(s)",
+                    flashbackplus_originalDummyFrames);
+        }
         DepthCaptureState.reset();
 
         ExportJob self = (ExportJob) (Object) this;
@@ -133,20 +159,33 @@ public class MixinExportJob {
         }
     }
 
-    // === HDR color transform + capture: inject BEFORE startDownload ===
-    //
-    // Injects before the startDownload call in doExport(VideoWriter, SaveableFramebufferQueue).
-    // Mixin provides closing-method params here, so we use Minecraft.getMainRenderTarget()
-    // to access the render target instead of trying to capture locals.
+    // === Bind the latest pre-clear world-depth snapshot to this color download ===
+
+    @Redirect(method = "doExport",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lnet/minecraft/class_276;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
+            remap = false)
+    private void captureDepthBeforeStartDownload(SaveableFramebufferQueue downloader,
+                                                  RenderTarget target,
+                                                  SaveableFramebuffer framebuffer,
+                                                  boolean flag) {
+        if (isExrMode) {
+            long frameId = DepthCaptureState.nextExportFrameId();
+            GameRendererDepthAccess renderer =
+                    (GameRendererDepthAccess) (Object) net.minecraft.client.Minecraft.getInstance().gameRenderer;
+            renderer.flashbackplus_captureDepthForFrame(target, frameId);
+        }
+        downloader.startDownload(target, framebuffer, flag);
+    }
 
     @Inject(method = "doExport",
             at = @At(value = "INVOKE",
-                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
+                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lnet/minecraft/class_276;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
             remap = false)
     private void beforeStartDownload(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                       CallbackInfo ci) {
         /*? if hdr {*/
-        if (!isHdrMode || hdrColorShader == null || hdrFrameCapture == null) return;
+        if (!isHdrMode) return;
 
         // Get the main render target (MC renders into this during export)
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
@@ -157,13 +196,20 @@ public class MixinExportJob {
         /*?}*/
         if (target == null) return;
 
+        float peak = HdrExportState.getPeakBrightness();
+        /*? if >=26.2 {*/
+        /*java.nio.ByteBuffer hdrData = GpuExportBackendFactory.get().captureHdr(
+                target, target.width, target.height, peak);
+        if (hdrData != null && hdrWriterRef != null) hdrWriterRef.addHdrFrame(hdrData);
+        *//*?}*/
+        /*? if <26.2 {*/
+
         // Step 1: Color transform — scRGB-nl → BT.2020 + PQ
         /*? if >=1.21.5 {*/
         /*int srcTexId = ((GlTexture) target.getColorTexture()).glId();
         *//*?} else {*/
         int srcTexId = target.getColorTextureId();
         /*?}*/
-        float peak = HdrExportState.getPeakBrightness();
         int hdrTexId = hdrColorShader.render(srcTexId, peak);
 
         // Step 2: Async 16-bit PBO readback
@@ -175,13 +221,47 @@ public class MixinExportJob {
             hdrWriterRef.addHdrFrame(hdrData);
         }
         /*?}*/
+        /*?}*/
+    }
+
+    /*? if >=1.21.5 {*/
+    /*@Inject(method = "doExport",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/VideoWriter;finish(Ljava/util/function/Consumer;)V"),
+            remap = false)
+    private void flashbackplus$flushGpuBeforeFinish(VideoWriter videoWriter,
+                                                     SaveableFramebufferQueue downloader,
+                                                     CallbackInfo ci) {
+        flashbackplusFlushGpuReadback();
+    }
+    *//*?} else {*/
+    /*@Inject(method = "doExport",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/VideoWriter;finish()V"),
+            remap = false)
+    private void flashbackplus$flushGpuBeforeFinish(VideoWriter videoWriter,
+                                                     SaveableFramebufferQueue downloader,
+                                                     CallbackInfo ci) {
+        flashbackplusFlushGpuReadback();
+    }
+    *//*?}*/
+
+    @Unique
+    private void flashbackplusFlushGpuReadback() {
+        Flashbackplus.LOGGER.info("EXR finish: GPU flush started");
+        GpuExportBackendFactory.get().flush();
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        com.rethinkqaq.flashbackplus.exporting.GameRendererDepthAccess renderer =
+                (com.rethinkqaq.flashbackplus.exporting.GameRendererDepthAccess) (Object) mc.gameRenderer;
+        renderer.flashbackplus_flushDepthPbo();
+        Flashbackplus.LOGGER.info("EXR finish: GPU flush completed");
     }
 
     // === Camera capture: inject AFTER startDownload ===
 
     @Inject(method = "doExport",
             at = @At(value = "INVOKE",
-                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V",
+                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lnet/minecraft/class_276;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V",
                     shift = At.Shift.AFTER),
             remap = false)
     private void onStartDownloadAfter(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
@@ -223,13 +303,16 @@ public class MixinExportJob {
     @Inject(method = "doExport", at = @At("RETURN"), remap = false)
     private void onDoExportReturn(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                    CallbackInfo ci) {
+        Flashbackplus.LOGGER.info("EXR finish: doExport returned, starting cleanup");
         if (cameraExporter != null && cameraExporter.getFrameCount() > 0) {
             cameraExporter.applyGaussianSmoothing();
             Path videoPath = settings.output();
             String videoName = videoPath.getFileName().toString();
             int dot = videoName.lastIndexOf('.');
             String base = dot > 0 ? videoName.substring(0, dot) : videoName;
-            Path glbPath = videoPath.resolveSibling(base + "_camera.glb");
+            Path glbPath = isExrMode
+                    ? videoPath.resolve("camera.glb")
+                    : videoPath.resolveSibling(base + "_camera.glb");
             try {
                 cameraExporter.finish(glbPath);
                 Flashbackplus.LOGGER.info("Camera path: {} frames → {}", cameraExporter.getFrameCount(), glbPath);
@@ -240,6 +323,7 @@ public class MixinExportJob {
 
         // Drain remaining HDR frames
         /*? if hdr {*/
+        /*? if <26.2 {*/
         if (isHdrMode && hdrFrameCapture != null) {
             ByteBuffer remaining = hdrFrameCapture.collect();
             if (remaining != null && hdrWriterRef != null) {
@@ -250,6 +334,7 @@ public class MixinExportJob {
                 if (hdrWriterRef != null) hdrWriterRef.addHdrFrame(remaining);
             }
         }
+        /*?}*/
         /*?}*/
 
         /*? if hdr {*/
@@ -267,11 +352,17 @@ public class MixinExportJob {
 
         DepthCaptureState.reset();
         GpuExportBackendFactory.reset();
+        if (flashbackplus_dummyFramesOverridden) {
+            com.moulberry.flashback.Flashback.getConfig().exporting.exportRenderDummyFrames =
+                    flashbackplus_originalDummyFrames;
+            flashbackplus_dummyFramesOverridden = false;
+        }
         cameraExporter = null;
         isExrMode = false;
         isHdrMode = false;
         /*? if hdr {*/
         hdrWriterRef = null;
         /*?}*/
+        Flashbackplus.LOGGER.info("EXR finish: cleanup completed");
     }
 }

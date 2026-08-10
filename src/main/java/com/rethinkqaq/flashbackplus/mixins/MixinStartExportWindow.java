@@ -1,6 +1,7 @@
 package com.rethinkqaq.flashbackplus.mixins;
 
 import com.moulberry.flashback.configuration.FlashbackConfigV1;
+import com.moulberry.flashback.combo_options.VideoCodec;
 import com.moulberry.flashback.state.EditorState;
 import com.rethinkqaq.flashbackplus.FlashbackPlusConfig;
 import com.rethinkqaq.flashbackplus.exporting.HdrExportState;
@@ -10,6 +11,11 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import java.util.concurrent.CompletableFuture;
+
+import com.moulberry.flashback.exporting.ExportSettings;
 
 /**
  * GUI additions:
@@ -18,6 +24,35 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(value = com.moulberry.flashback.editor.ui.windows.StartExportWindow.class, remap = false)
 public class MixinStartExportWindow {
+
+    /** Trace the asynchronous folder/file selection before an ExportJob exists. */
+    @Inject(method = "createExportSettings", at = @At("RETURN"), remap = false)
+    private static void flashbackplus$traceExportSettings(String jobName, FlashbackConfigV1 config,
+                                                           CallbackInfoReturnable<CompletableFuture<ExportSettings>> cir) {
+        CompletableFuture<ExportSettings> future = cir.getReturnValue();
+        com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.info(
+                "Export settings request created: jobName={}, container={}, future={}",
+                jobName, config.internalExport.container, future != null);
+        if (future == null) {
+            com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
+                    "Export settings request returned null future");
+            return;
+        }
+        future.whenComplete((settings, error) -> {
+            if (error != null) {
+                com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.error(
+                        "Export settings future failed", error);
+            } else if (settings == null) {
+                com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
+                        "Export settings future completed with null; export was cancelled or file dialog failed");
+            } else {
+                com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.info(
+                        "Export settings ready: output={}, container={}, resolution={}x{}, framerate={}",
+                        settings.output(), settings.container(), settings.resolutionX(), settings.resolutionY(),
+                        settings.framerate());
+            }
+        });
+    }
 
     // === Format selector: injected at start of renderVideoOptions ===
 
@@ -44,6 +79,19 @@ public class MixinStartExportWindow {
             // Force container to PNG_SEQUENCE (triggers folder picker)
             config.internalExport.container =
                     com.moulberry.flashback.combo_options.VideoContainer.PNG_SEQUENCE;
+
+            // Flashback still builds a complete ExportSettings object for a
+            // PNG_SEQUENCE export before our ExportJob writer redirect runs.
+            // Since EXR mode skips Flashback's normal codec controls, the
+            // codec fields may otherwise remain null and createExportSettings
+            // fails before the ExportJob is queued.
+            if (config.internalExport.videoCodec == null) {
+                config.internalExport.videoCodec = VideoCodec.H264;
+            }
+            if (config.internalExport.selectedVideoEncoder == null
+                    || config.internalExport.selectedVideoEncoder.length == 0) {
+                config.internalExport.selectedVideoEncoder = new int[]{0};
+            }
 
             // Force SSAA off
             config.internalExport.ssaa = false;

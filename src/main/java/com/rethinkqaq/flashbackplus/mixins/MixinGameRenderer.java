@@ -12,6 +12,7 @@ import com.rethinkqaq.flashbackplus.gpu.GpuExportBackendFactory;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
@@ -41,19 +42,17 @@ import java.nio.FloatBuffer;
  * Camera: captured after renderLevel() returns (in GameRenderer.render()).
  */
 @Mixin(value = GameRenderer.class, remap = false)
-public class MixinGameRenderer {
+public class MixinGameRenderer implements com.rethinkqaq.flashbackplus.exporting.GameRendererDepthAccess {
 
     // === Depth Capture: intercept hand-render depth clear inside renderLevel ===
 
-    /*? >= 1.21.5 {*/
+    /*? if >= 1.21.5 {*/
     /*@Redirect(method = "renderLevel",
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
     private void redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
-        if (DepthCaptureState.active) {
-            captureDepthPbo();
-        }
+        flashbackplus_snapshotWorldDepthBeforeClear();
         encoder.clearDepthTexture(texture, depth);
     }
     *//*?} elif >=1.21.4 {*/
@@ -62,9 +61,7 @@ public class MixinGameRenderer {
                     target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(I)V"),
             remap = false)
     private void redirectClearInRenderLevel(int mask) {
-        if ((mask & 256) != 0 && DepthCaptureState.active) {
-            captureDepthPbo();
-        }
+        if ((mask & 256) != 0) flashbackplus_snapshotWorldDepthBeforeClear();
         com.mojang.blaze3d.systems.RenderSystem.clear(mask);
     }
     *//*?} else {*/
@@ -73,9 +70,7 @@ public class MixinGameRenderer {
                     target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(IZ)V"),
             remap = false)
     private void redirectClearInRenderLevel(int mask, boolean getError) {
-        if ((mask & 256) != 0 && DepthCaptureState.active) {
-            captureDepthPbo();
-        }
+        if ((mask & 256) != 0) flashbackplus_snapshotWorldDepthBeforeClear();
         com.mojang.blaze3d.systems.RenderSystem.clear(mask, getError);
     }
     /*?}*/
@@ -91,14 +86,14 @@ public class MixinGameRenderer {
         try {
             Minecraft mc = Minecraft.getInstance();
             /*? if >=26.2 {*/
-            /*? if >=26.2 {*/
-            /*var camera = mc.gameRenderer.mainCamera();
+            /*/^? if >=26.2 {^/
+            /^var camera = mc.gameRenderer.mainCamera();
+            ^//^?} else {^/
+            var camera = mc.gameRenderer.getMainCamera();
+            /^?}^/
             *//*?} else {*/
             var camera = mc.gameRenderer.getMainCamera();
             /*?}*/
-            /*?} else {*/
-            /*var camera = mc.gameRenderer.getMainCamera();
-            *//*?}*/
             if (camera != null && camera.isInitialized()) {
                 /*? if >=1.21.11 {*/
                 /*var pos = camera.position();
@@ -124,13 +119,16 @@ public class MixinGameRenderer {
     // ============================================================
 
     @Unique
-    private static final int PBO_COUNT = 2;
+    private static final int PBO_COUNT = 3;
 
     @Unique
     private final int[] flashbackplus_pbo = new int[PBO_COUNT];
 
     @Unique
     private final long[] flashbackplus_fence = new long[PBO_COUNT];
+
+    @Unique
+    private final long[] flashbackplus_pboFrame = new long[PBO_COUNT];
 
     @Unique
     private int flashbackplus_writeIdx = 0;
@@ -169,28 +167,95 @@ public class MixinGameRenderer {
                 GL15.glDeleteBuffers(flashbackplus_pbo[i]);
                 flashbackplus_pbo[i] = 0;
             }
+            flashbackplus_pboFrame[i] = -1L;
         }
         flashbackplus_pboReady = false;
         flashbackplus_writeIdx = 0;
     }
 
+    @Override
+    public void flashbackplus_captureDepthForFrame(RenderTarget target, long frameId) {
+        if (!DepthCaptureState.active || target == null) return;
+        DepthCaptureState.requestedFrameId = frameId;
+        try {
+            /*? if <26.2 {*/
+            FloatBuffer snapshot = DepthCaptureState.takePendingWorldDepth();
+            if (snapshot == null) {
+                Flashbackplus.LOGGER.warn("No world-depth snapshot available for EXR frame {}", frameId);
+                return;
+            }
+            synchronized (DepthCaptureState.depthQueue) {
+                DepthCaptureState.depthQueue.addLast(new DepthCaptureState.DepthFrame(frameId, snapshot));
+            }
+            /*?} else {*/
+            captureDepthPbo(frameId, target);
+            /*?}*/
+        } finally {
+            DepthCaptureState.requestedFrameId = -1L;
+        }
+    }
+
     /**
-     * Main depth capture entry point.
-     * 1. Try to read from the PBO written 2 frames ago (non-blocking).
-     * 2. Start async write into the current PBO.
-     * 3. Flip write index for next frame.
+     * Saves world depth before Minecraft clears it for hand rendering. The
+     * snapshot is assigned to an output frame later, at startDownload.
      */
     @Unique
-    private void captureDepthPbo() {
+    private void flashbackplus_snapshotWorldDepthBeforeClear() {
+        /*? if >=26.2 {*/
+        /*if (!DepthCaptureState.active) return;
+        Minecraft mc = Minecraft.getInstance();
+        RenderTarget target = mc.getMainRenderTarget();
+        if (target == null || !target.useDepth || target.getDepthTexture() == null) return;
+        GpuExportBackendFactory.get().snapshotWorldDepth(
+                target, DepthCaptureState.width, DepthCaptureState.height, DepthCaptureState.depthFar);
+        *//*?} else {*/
+        /*? if <26.2 {*/
+        if (!DepthCaptureState.active) return;
+        Minecraft mc = Minecraft.getInstance();
+        RenderTarget target = mc.getMainRenderTarget();
+        if (target == null) return;
+        if (!target.useDepth) return;
+
+        /*? if >=1.21.5 {*/
+        /*int depthTextureId = ((GlTexture) target.getDepthTexture()).glId();
+        *//*?} else {*/
+        int depthTextureId = target.getDepthTextureId();
+        /*?}*/
+        if (depthTextureId <= 0) return;
+
+        FloatBuffer copy = DepthCaptureState.acquireBuffer();
+        int oldTexture = GL11.glGetInteger(GL30.GL_TEXTURE_BINDING_2D);
+        int oldPbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+        boolean captured = false;
         try {
-            Minecraft mc = Minecraft.getInstance();
-            /*? if >=26.2 {*/
-            /*RenderTarget rt = ((GameRenderer) (Object) this).mainRenderTarget();
-            *//*?} else {*/
-            RenderTarget rt = mc.getMainRenderTarget();
-            /*?}*/
+            // A non-zero pack PBO changes the last argument from a destination
+            // buffer to a byte offset, so force direct client-memory readback.
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+            GL30.glBindTexture(GL30.GL_TEXTURE_2D, depthTextureId);
+            GL30.glGetTexImage(GL30.GL_TEXTURE_2D, 0,
+                    GL30.GL_DEPTH_COMPONENT, GL30.GL_FLOAT, copy);
+            copy.rewind();
+            captured = true;
+            DepthCaptureState.replacePendingWorldDepth(copy);
+        } finally {
+            GL30.glBindTexture(GL30.GL_TEXTURE_2D, oldTexture);
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, oldPbo);
+            if (!captured) DepthCaptureState.releaseBuffer(copy);
+        }
+        /*?}*/
+        /*?}*/
+    }
+
+    @Unique
+    private void captureDepthPbo(long frameId, RenderTarget target) {
+        try {
+            if (GpuExportBackendFactory.get().capturesBeforeDepthClear()) {
+                captureDepthBeforeClear(target);
+                return;
+            }
+            if (flashbackplus_deferDepth) return;
             /*? if <26.2 {*/
-            if (rt == null || !rt.useDepth) return;
+            if (!target.useDepth) return;
 
             // Lazy init on first frame
             if (!flashbackplus_pboReady) {
@@ -202,13 +267,14 @@ public class MixinGameRenderer {
             // Keep the legacy Mixin source compatible with all pre-26.2 mappings.
             DepthCaptureState.depthFar = 1000.0f;
 
-            int readIdx = 1 - flashbackplus_writeIdx;
+            int readIdx = (flashbackplus_writeIdx + PBO_COUNT - 1) % PBO_COUNT;
 
             // --- Step 1: Read from PBO written 2 frames ago (if ready) ---
             if (flashbackplus_fence[readIdx] != 0) {
                 int result = GL32.glClientWaitSync(flashbackplus_fence[readIdx],
                         GL32.GL_SYNC_FLUSH_COMMANDS_BIT, 1_000_000); // 1ms
                 if (result == GL32.GL_ALREADY_SIGNALED || result == GL32.GL_CONDITION_SATISFIED) {
+                    int oldPbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
                     GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, flashbackplus_pbo[readIdx]);
                     ByteBuffer mapped = GL15.glMapBuffer(GL21.GL_PIXEL_PACK_BUFFER, GL15.GL_READ_ONLY);
                     if (mapped != null) {
@@ -217,11 +283,12 @@ public class MixinGameRenderer {
                         copy.put(mapped.asFloatBuffer());
                         copy.rewind();
                         synchronized (DepthCaptureState.depthQueue) {
-                            DepthCaptureState.depthQueue.addLast(copy);
+                            DepthCaptureState.depthQueue.addLast(
+                                    new DepthCaptureState.DepthFrame(flashbackplus_pboFrame[readIdx], copy));
                         }
                         GL15.glUnmapBuffer(GL21.GL_PIXEL_PACK_BUFFER);
                     }
-                    GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+                    GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, oldPbo);
                     GL32.glDeleteSync(flashbackplus_fence[readIdx]);
                     flashbackplus_fence[readIdx] = 0;
                 }
@@ -233,26 +300,69 @@ public class MixinGameRenderer {
             int writeIdx = flashbackplus_writeIdx;
             GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, flashbackplus_pbo[writeIdx]);
             /*? if >=1.21.5 {*/
-            /*int depthTexId = ((GlTexture) rt.getDepthTexture()).glId();
+            /*int depthTexId = ((GlTexture) target.getDepthTexture()).glId();
             *//*?} else {*/
-            int depthTexId = rt.getDepthTextureId();
+            int depthTexId = target.getDepthTextureId();
             /*?}*/
+            if (depthTexId <= 0 || flashbackplus_pbo[writeIdx] == 0) return;
             int[] oldTex = new int[1];
+            int oldPbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
             GL30.glGetIntegerv(GL30.GL_TEXTURE_BINDING_2D, oldTex);
             GL30.glBindTexture(GL30.GL_TEXTURE_2D, depthTexId);
             // With PBO bound, last arg = offset into PBO (0 = start)
             GL30.glGetTexImage(GL30.GL_TEXTURE_2D, 0, GL30.GL_DEPTH_COMPONENT, GL30.GL_FLOAT, 0);
             GL30.glBindTexture(GL30.GL_TEXTURE_2D, oldTex[0]);
-            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, oldPbo);
 
             // Create fence for GPU to signal when the DMA transfer completes
+            flashbackplus_pboFrame[writeIdx] = frameId;
             flashbackplus_fence[writeIdx] = GL32.glFenceSync(GL32.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 
             // --- Step 3: Flip for next frame ---
-            flashbackplus_writeIdx = 1 - flashbackplus_writeIdx;
+            flashbackplus_writeIdx = (flashbackplus_writeIdx + 1) % PBO_COUNT;
             /*?}*/
         } catch (Exception e) {
             Flashbackplus.LOGGER.error("Failed to capture depth buffer via PBO", e);
         }
     }
+
+    /** Drain all pending legacy PBO transfers before EXR finalization. */
+    @Unique
+    public void flashbackplus_flushDepthPbo() {
+        for (int i = 0; i < PBO_COUNT; i++) {
+            long fence = flashbackplus_fence[i];
+            if (fence == 0) continue;
+            int result = GL32.glClientWaitSync(fence, GL32.GL_SYNC_FLUSH_COMMANDS_BIT,
+                    1_000_000_000L);
+            if (result != GL32.GL_ALREADY_SIGNALED && result != GL32.GL_CONDITION_SATISFIED) {
+                Flashbackplus.LOGGER.warn("Depth PBO {} did not finish before EXR finalization", i);
+                continue;
+            }
+            int oldPbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, flashbackplus_pbo[i]);
+            ByteBuffer mapped = GL15.glMapBuffer(GL21.GL_PIXEL_PACK_BUFFER, GL15.GL_READ_ONLY);
+            if (mapped != null) {
+                FloatBuffer copy = DepthCaptureState.acquireBuffer();
+                copy.put(mapped.asFloatBuffer());
+                copy.rewind();
+                synchronized (DepthCaptureState.depthQueue) {
+                    DepthCaptureState.depthQueue.addLast(
+                            new DepthCaptureState.DepthFrame(flashbackplus_pboFrame[i], copy));
+                }
+                GL15.glUnmapBuffer(GL21.GL_PIXEL_PACK_BUFFER);
+            }
+            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, oldPbo);
+            GL32.glDeleteSync(fence);
+            flashbackplus_fence[i] = 0;
+        }
+    }
+
+    @Unique
+    private void captureDepthBeforeClear(RenderTarget target) {
+        GpuExportBackendFactory.get().captureDepth(
+                target, DepthCaptureState.width, DepthCaptureState.height, DepthCaptureState.depthFar);
+    }
+
+    @Unique
+    private boolean flashbackplus_deferDepth = false;
 }
