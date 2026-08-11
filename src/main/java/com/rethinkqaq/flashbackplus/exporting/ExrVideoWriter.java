@@ -24,7 +24,7 @@ public class ExrVideoWriter implements VideoWriter {
 
     private static final int QUEUE_CAPACITY = 8;
     private static final int WRITER_COUNT = 2;
-    private static final FramePacket STOP = new FramePacket(-1, null, null);
+    private static final FramePacket STOP = new FramePacket(-1, null, null, 0.05f, 1000.0f);
 
     private final MultiLayerExrWriter[] exrWriters;
     private final ArrayBlockingQueue<FramePacket> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
@@ -95,7 +95,8 @@ public class ExrVideoWriter implements VideoWriter {
             if (depthFrame == null) break;
 
             NativeImage colorImage = pendingColors.removeFirst();
-            FramePacket packet = new FramePacket((int) nextFrameId++, colorImage, depthFrame.data);
+            FramePacket packet = new FramePacket((int) nextFrameId++, colorImage, depthFrame.data,
+                    depthFrame.zNear, depthFrame.zFar);
             try {
                 queue.put(packet);
             } catch (InterruptedException e) {
@@ -120,7 +121,8 @@ public class ExrVideoWriter implements VideoWriter {
                 FramePacket packet = queue.take();
                 if (packet == STOP) return;
                 try {
-                    exrWriters[workerIndex].writeFrame(packet.color, packet.depth, packet.frameId);
+                    exrWriters[workerIndex].writeFrame(packet.color, packet.depth, packet.frameId,
+                            packet.zNear, packet.zFar);
                 } catch (Throwable t) {
                     writerFailure.compareAndSet(null, t);
                     return;
@@ -213,11 +215,15 @@ public class ExrVideoWriter implements VideoWriter {
         private final int frameId;
         private final NativeImage color;
         private final FloatBuffer depth;
+        private final float zNear;
+        private final float zFar;
 
-        private FramePacket(int frameId, NativeImage color, FloatBuffer depth) {
+        private FramePacket(int frameId, NativeImage color, FloatBuffer depth, float zNear, float zFar) {
             this.frameId = frameId;
             this.color = color;
             this.depth = depth;
+            this.zNear = zNear;
+            this.zFar = zFar;
         }
 
         private void close() {

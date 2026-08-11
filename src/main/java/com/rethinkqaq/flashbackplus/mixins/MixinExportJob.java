@@ -78,14 +78,13 @@ public class MixinExportJob {
         /*isHdrMode = false;
         *//*?}*/
         isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
-        /*? if depth_export {*/
-        /*// This version has a complete depth readback implementation.
-        *//*?} else {*/
-        if (isExrMode) {
+        /*? if >=26.2 {*/
+        /*?} elif >=26.1 {*/
+        /*if (isExrMode) {
             isExrMode = false;
             Flashbackplus.LOGGER.warn("OpenEXR export is disabled on 26.1.2: its Blaze3D depth readback is incomplete");
         }
-        /*?}*/
+        *//*?}*/
 
         if (isExrMode) {
             Path outputDir = settings.output();
@@ -129,14 +128,13 @@ public class MixinExportJob {
         // Keep the mode decision identical to redirectCreateWriter. HDR takes
         // precedence, so it must not accidentally activate depth capture.
         isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
-        /*? if depth_export {*/
-        /*// This version has a complete depth readback implementation.
-        *//*?} else {*/
-        if (isExrMode) {
+        /*? if >=26.2 {*/
+        /*?} elif >=26.1 {*/
+        /*if (isExrMode) {
             isExrMode = false;
             Flashbackplus.LOGGER.warn("OpenEXR export request rejected on 26.1.2: depth readback is unavailable");
         }
-        /*?}*/
+        *//*?}*/
         if (isExrMode) {
             com.moulberry.flashback.configuration.FlashbackConfigV1 config =
                     com.moulberry.flashback.Flashback.getConfig();
@@ -179,43 +177,32 @@ public class MixinExportJob {
         }
     }
 
-    // === Bind the latest pre-clear world-depth snapshot to this color download ===
+    // === Capture depth from the same RenderTarget as this color download ===
 
     @Redirect(method = "doExport",
             at = @At(value = "INVOKE",
-                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lnet/minecraft/class_276;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
+                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
             remap = false)
-    private void captureDepthBeforeStartDownload(SaveableFramebufferQueue downloader,
-                                                  RenderTarget target,
-                                                  SaveableFramebuffer framebuffer,
-                                                  boolean flag) {
+    private void flashbackplus$captureAndStartDownload(SaveableFramebufferQueue downloader,
+                                                        RenderTarget target,
+                                                        SaveableFramebuffer framebuffer,
+                                                        boolean flag) {
         if (isExrMode) {
             long frameId = DepthCaptureState.nextExportFrameId();
             GameRendererDepthAccess renderer =
                     (GameRendererDepthAccess) (Object) net.minecraft.client.Minecraft.getInstance().gameRenderer;
             renderer.flashbackplus_captureDepthForFrame(target, frameId);
         }
+        flashbackplus$captureHdrBeforeDownload(target);
         downloader.startDownload(target, framebuffer, flag);
+        flashbackplus$recordCameraFrame();
     }
 
-    @Inject(method = "doExport",
-            at = @At(value = "INVOKE",
-                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lnet/minecraft/class_276;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
-            remap = false)
-    private void beforeStartDownload(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
-                                      CallbackInfo ci) {
+    /** HDR capture shares the depth redirect so the two injectors cannot consume the same invocation. */
+    @Unique
+    private void flashbackplus$captureHdrBeforeDownload(RenderTarget target) {
         /*? if hdr {*/
         if (!isHdrMode) return;
-
-        // Get the main render target (MC renders into this during export)
-        /*? if >=26.2 {*/
-        /*com.mojang.blaze3d.pipeline.RenderTarget target =
-                ((net.minecraft.client.renderer.GameRenderer) (Object) net.minecraft.client.Minecraft.getInstance().gameRenderer)
-                        .mainRenderTarget();
-        *//*?} else {*/
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-        com.mojang.blaze3d.pipeline.RenderTarget target = mc.getMainRenderTarget();
-        /*?}*/
         if (target == null) return;
 
         float peak = HdrExportState.getPeakBrightness();
@@ -279,15 +266,10 @@ public class MixinExportJob {
         Flashbackplus.LOGGER.info("EXR finish: GPU flush completed");
     }
 
-    // === Camera capture: inject AFTER startDownload ===
+    // === Camera capture: called immediately AFTER startDownload ===
 
-    @Inject(method = "doExport",
-            at = @At(value = "INVOKE",
-                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lnet/minecraft/class_276;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V",
-                    shift = At.Shift.AFTER),
-            remap = false)
-    private void onStartDownloadAfter(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
-                                       CallbackInfo ci) {
+    @Unique
+    private void flashbackplus$recordCameraFrame() {
         if (cameraExporter == null) return;
 
         double partialClientTick = currentTickDouble - (int) currentTickDouble;

@@ -32,9 +32,21 @@ dependencies {
     modImplementation("net.fabricmc.fabric-api:fabric-api:$fabricApiVersion")
     modImplementation("maven.modrinth:flashback:${property("deps.flashback")}-fabric,${sc.current.version}")
 
-    // Flashback's release jar contains these nested libraries, but Loom's
-    // development runtime does not expose nested jars from the exploded mod.
-    // Keep the same versions available both in runClient and in our final jar.
+    modImplementation("maven.modrinth:sodium:${property("deps.sodium")}")
+    modImplementation("maven.modrinth:iris:${property("deps.iris")}")
+
+    // Iris ships JCPP as a nested jar. Loom's development runtime does not
+    // expose nested mod jars on the runClient classpath, so provide the same
+    // library explicitly for shaderpack parsing. This is runtime-only and is
+    // not bundled into Flashback Plus or declared as a mod dependency.
+    runtimeOnly("org.anarres:jcpp:1.4.14")
+    // Iris also embeds these shader transformation libraries. Loom does not
+    // put nested Iris jars on runClient's classpath, so expose them explicitly
+    // for development without adding them to the produced mod.
+    runtimeOnly("io.github.douira:glsl-transformer:3.0.0-pre3")
+    runtimeOnly("org.antlr:antlr4-runtime:4.13.1")
+    runtimeOnly("org.antlr:antlr4:4.13.1")
+
     modLocalRuntime("org.apache.httpcomponents:httpclient:4.5.14")
     modLocalRuntime("org.apache.httpcomponents:httpcore:4.4.16")
 

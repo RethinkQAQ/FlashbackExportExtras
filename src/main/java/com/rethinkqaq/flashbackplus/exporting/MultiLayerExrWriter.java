@@ -111,8 +111,9 @@ public class MultiLayerExrWriter implements AutoCloseable {
      * Writes one multi-layer EXR frame.
      * Fills pre-allocated buffers with new data, then calls tinyexr.
      */
-    public void writeFrame(NativeImage colorImage, FloatBuffer depthBuffer, int frameNumber) throws IOException {
-        fillBuffers(colorImage, depthBuffer);
+    public void writeFrame(NativeImage colorImage, FloatBuffer depthBuffer, int frameNumber,
+                           float zNear, float zFar) throws IOException {
+        fillBuffers(colorImage, depthBuffer, zNear, zFar);
         writeExr(frameNumber);
         frameCount++;
     }
@@ -123,7 +124,7 @@ public class MultiLayerExrWriter implements AutoCloseable {
      * Uses getPixelsRGBA() for a single bulk copy (one memcpy) instead of
      * width*height individual JNI calls to getPixelRGBA(x,y).
      */
-    private void fillBuffers(NativeImage colorImage, FloatBuffer depthBuffer) {
+    private void fillBuffers(NativeImage colorImage, FloatBuffer depthBuffer, float zNear, float zFar) {
         float inv255 = INV_255;
         int pixelCount = width * height;
 
@@ -145,8 +146,8 @@ public class MultiLayerExrWriter implements AutoCloseable {
 
         // --- Pass 2: Fill depth (Y-flipped from GL bottom-up) ---
         if (linearizeDepth) {
-            float znear = 0.05f;
-            float zfar = DepthCaptureState.depthFar;
+            float znear = zNear;
+            float zfar = zFar;
             float twoZnZf = 2.0f * znear * zfar;
             float zfMinusZn = zfar - znear;
             float zfPlusZn = zfar + znear;
@@ -170,10 +171,10 @@ public class MultiLayerExrWriter implements AutoCloseable {
             }
         }
 
-        logDepthOutput();
+        logDepthOutput(zNear, zFar);
     }
 
-    private void logDepthOutput() {
+    private void logDepthOutput(float zNear, float zFar) {
         int frame = depthDebugFrame++;
         if (frame >= 3 && frame % 30 != 0) return;
 
@@ -193,8 +194,8 @@ public class MultiLayerExrWriter implements AutoCloseable {
         int center = Math.max(0, Math.min(count - 1, (height / 2) * width + width / 2));
         int quarter = Math.max(0, Math.min(count - 1, (height / 4) * width + width / 4));
         com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.info(
-                "EXR depth output #{}: linearize={}, finite={}/{}, min={}, max={}, q1={}, center={}, q3={}",
-                frame, linearizeDepth, finite, count, min, max,
+                "EXR depth output #{}: linearize={}, near={}, far={}, finite={}/{}, min={}, max={}, q1={}, center={}, q3={}",
+                frame, linearizeDepth, zNear, zFar, finite, count, min, max,
                 zBuf.get(quarter), zBuf.get(center), zBuf.get(Math.max(0, count - 1 - quarter)));
     }
 

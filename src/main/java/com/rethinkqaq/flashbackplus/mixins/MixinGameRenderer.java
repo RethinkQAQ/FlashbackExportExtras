@@ -20,6 +20,12 @@ import com.rethinkqaq.flashbackplus.exporting.DepthCaptureState;
 import com.rethinkqaq.flashbackplus.gpu.GpuExportBackendFactory;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
+/*? if >=26.2 {*/
+/*import net.minecraft.client.renderer.state.GameRenderState;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Shadow;
+*//*?}*/
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -30,10 +36,37 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /** Captures camera metadata and delegates version-specific depth work to the GPU backend. */
 @Mixin(value = GameRenderer.class, remap = false)
 public class MixinGameRenderer implements com.rethinkqaq.flashbackplus.exporting.GameRendererDepthAccess {
+    /*? if >=26.2 {*/
+    /*@Shadow @Final private GameRenderState gameRenderState;
+    *//*?}*/
     @Unique
     private boolean flashbackplus_cameraCaptureFailedLogged;
 
-    /*? if >=1.21.5 {*/
+    /*? if >=26.2 {*/
+    /*@Redirect(method = "renderLevel",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
+            remap = false)
+    private void flashbackplus$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
+        if (!DepthCaptureState.active) encoder.clearDepthTexture(texture, depth);
+    }
+
+    @Redirect(method = "render",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
+            remap = false)
+    private void flashbackplus$preserveDepthDuringGui(CommandEncoder encoder, GpuTexture texture, double depth) {
+        if (!DepthCaptureState.active) encoder.clearDepthTexture(texture, depth);
+    }
+    *//*?} elif >=26.1 {*/
+    /*@Redirect(method = "renderLevel",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
+            remap = false)
+    private void flashbackplus$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
+        encoder.clearDepthTexture(texture, depth);
+    }
+    *//*?} elif >=1.21.5 {*/
     /*@Redirect(method = "renderLevel",
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
@@ -102,6 +135,12 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackplus.exporting
     @Override
     public void flashbackplus_captureDepthForFrame(RenderTarget target, long frameId) {
         if (!DepthCaptureState.active || target == null) return;
+        /*? if >=26.2 {*/
+        /*CameraRenderState cameraState = gameRenderState.levelRenderState.cameraRenderState;
+        if (cameraState != null && Float.isFinite(cameraState.depthFar) && cameraState.depthFar > 0.05f) {
+            DepthCaptureState.depthFar = cameraState.depthFar;
+        }
+        *//*?}*/
         DepthCaptureState.requestedFrameId = frameId;
         try {
             /*? if <26.1 {*/
@@ -125,11 +164,8 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackplus.exporting
     @Unique
     private void flashbackplus_snapshotWorldDepthBeforeClear() {
         /*? if >=26.2 {*/
-        /*if (!DepthCaptureState.active) return;
-        RenderTarget target = ((GameRenderer) (Object) this).mainRenderTarget();
-        if (target == null || !target.useDepth || target.getDepthTexture() == null) return;
-        GpuExportBackendFactory.get().snapshotWorldDepth(
-                target, DepthCaptureState.width, DepthCaptureState.height, DepthCaptureState.depthFar);
+        /*// 26.2 follows ReplayMod's strategy: suppress the clear and copy the
+        // main RenderTarget depth beside the matching colour download.
         *//*?} elif >=26.1 {*/
         /*// 26.1.2 does not expose a complete depth readback implementation.
         // Deliberately do not fall back to raw OpenGL here.
@@ -172,6 +208,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackplus.exporting
 
     @Inject(method = "render", at = @At("HEAD"), remap = false)
     private void flashbackplus$releasePendingGpuResources(CallbackInfo ci) {
+        DepthCaptureState.beginRenderFrame();
         GpuExportBackendFactory.releasePendingOnRenderThread();
     }
 }

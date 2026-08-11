@@ -64,6 +64,20 @@ public class DepthCaptureState {
     /** Frame ID explicitly requested by ExportJob for the frame being rendered. */
     public static volatile long requestedFrameId = -1L;
 
+    /**
+     * Set only when Iris' shaderpack pipeline actually rendered this frame.
+     * Installing Iris without enabling a shaderpack leaves this false.
+     */
+    public static volatile boolean irisShaderPackRenderedThisFrame = false;
+
+    public static void beginRenderFrame() {
+        irisShaderPackRenderedThisFrame = false;
+    }
+
+    public static void markIrisShaderPackRendered() {
+        if (active) irisShaderPackRenderedThisFrame = true;
+    }
+
     // === Buffer pool for PBO readback copies ===
     private static final int POOL_CAPACITY = 4;
     private static final Queue<FloatBuffer> bufferPool = new ArrayDeque<>();
@@ -120,10 +134,18 @@ public class DepthCaptureState {
     public static final class DepthFrame {
         public final long frameId;
         public final FloatBuffer data;
+        public final float zNear;
+        public final float zFar;
 
         public DepthFrame(long frameId, FloatBuffer data) {
+            this(frameId, data, 0.05f, depthFar);
+        }
+
+        public DepthFrame(long frameId, FloatBuffer data, float zNear, float zFar) {
             this.frameId = frameId;
             this.data = data;
+            this.zNear = zNear;
+            this.zFar = zFar;
         }
     }
 
@@ -143,6 +165,7 @@ public class DepthCaptureState {
         nextDepthFrameId = 0;
         nextExportFrameId = 0;
         requestedFrameId = -1L;
+        irisShaderPackRenderedThisFrame = false;
 
         FloatBuffer pending = takePendingWorldDepth();
         releaseBuffer(pending);

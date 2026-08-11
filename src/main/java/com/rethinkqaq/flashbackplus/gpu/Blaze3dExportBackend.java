@@ -35,23 +35,19 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     private final GpuBuffer[] depthBuffers = new GpuBuffer[BUFFER_COUNT];
     private final GpuFence[] depthFences = new GpuFence[BUFFER_COUNT];
     private final long[] depthFrameIds = new long[BUFFER_COUNT];
+    private final boolean[] depthReversed = new boolean[BUFFER_COUNT];
+    private final String[] depthSources = new String[BUFFER_COUNT];
     private int writeIndex;
     private int width;
     private int height;
     private boolean depthReadbackFailed;
     private int depthDebugFrame;
-    private int pendingWorldDepthIndex = -1;
     /^? if >=26.2 {^/
     /^private GpuTexture hdrCopyTexture;
     private GpuTextureView hdrCopyView;
     private RenderPipeline hdrCopyPipeline;
     private GpuBuffer hdrReadbackBuffer;
     private GpuBuffer hdrUniformBuffer;
-    ^//^?}^/
-    /^? if >=26.2 {^/
-    /^private GpuTexture depthCopyTexture;
-    private GpuTextureView depthCopyView;
-    private RenderPipeline depthCopyPipeline;
     ^//^?}^/
     @Override public boolean supportsDepthReadback() {
         /^? if >=26.2 {^/
@@ -67,55 +63,45 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         return false;
         /^?}^/
     }
-    @Override public boolean capturesBeforeDepthClear() { return true; }
-
     @Override
-    public void snapshotWorldDepth(RenderTarget target, int width, int height, float depthFar) {
+    public void captureDepth(RenderTarget target, int width, int height, float depthFar) {
         /^? if >=26.2 {^/
         /^if (target == null || !target.useDepth || target.getDepthTexture() == null || depthReadbackFailed) return;
         try {
             RenderSystem.assertOnRenderThread();
             if (!ensureDepthBuffers(width, height)) return;
-
-            // Keep the snapshot unnumbered until ExportJob starts the matching
-            // colour download. Minecraft clears this attachment immediately
-            // after the world pass, so it cannot be read at startDownload.
-            if (pendingWorldDepthIndex >= 0) {
-                if (!discardDepthCopy(pendingWorldDepthIndex)) return;
-                pendingWorldDepthIndex = -1;
-            }
+            collectDepth();
             int index = writeIndex;
-            if (depthFences[index] != null && !discardDepthCopy(index)) return;
-
-            ensureDepthCopyTarget(width, height);
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            try (RenderPass pass = encoder.createRenderPass(
-                    () -> "Flashback Plus world-depth snapshot",
-                    depthCopyView, java.util.Optional.empty())) {
-                pass.setPipeline(depthCopyPipeline);
-                pass.bindTexture("InDepth", target.getDepthTextureView(),
-                        RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
-                pass.draw(3, 1, 0, 0);
+            if (depthFences[index] != null) {
+                collectDepth(index, 1_000_000_000L);
+                if (depthFences[index] != null) {
+                    com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
+                            "Depth GPU readback buffer {} is still busy; skipping frame {}",
+                            index, DepthCaptureState.captureFrameId());
+                    return;
+                }
             }
-            encoder.copyTextureToBuffer(depthCopyTexture, depthBuffers[index], 0L, () -> {}, 0);
-            depthFrameIds[index] = -1L;
+            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+            encoder.copyTextureToBuffer(target.getDepthTexture(), depthBuffers[index], 0L, () -> {}, 0);
+            depthFrameIds[index] = DepthCaptureState.captureFrameId();
+            // Minecraft 26.2 normally renders with reversed-Z. Iris keeps the
+            // shaderpack-facing main depth in the standard OpenGL convention.
+            // The optional Iris Mixin marks only frames where a shaderpack
+            // pipeline actually ran, so merely installing Iris changes nothing.
+            depthReversed[index] = !DepthCaptureState.irisShaderPackRenderedThisFrame;
+            depthSources[index] = depthReversed[index]
+                    ? "Minecraft main depth (reversed-Z)"
+                    : "Iris shaderpack main depth (standard-Z)";
             depthFences[index] = encoder.createFence();
             encoder.submit();
-            pendingWorldDepthIndex = index;
+            collectDepth(index, 1_000_000_000L);
             writeIndex = (writeIndex + 1) % BUFFER_COUNT;
         } catch (RuntimeException e) {
             depthReadbackFailed = true;
             closeDepthBuffers();
             com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.error(
-                    "Blaze3D world-depth snapshot failed; continuing without depth", e);
+                    "Blaze3D direct depth readback failed; continuing without depth", e);
         }
-        ^//^?}^/
-    }
-
-    @Override
-    public void captureDepth(RenderTarget target, int width, int height, float depthFar) {
-        /^? if >=26.2 {^/
-        /^consumeWorldDepth(DepthCaptureState.captureFrameId());
         ^//^?} else {^/
         if (target == null || !target.useDepth || target.getDepthTexture() == null) return;
         if (depthReadbackFailed) return;
@@ -126,32 +112,10 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             int index = writeIndex;
             if (depthFences[index] != null) return;
             GpuTexture texture = target.getDepthTexture();
-            /^? if >=26.2 {^/
-            /^ensureDepthCopyTarget(width, height);
-            ^//^?}^/
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            /^? if >=26.2 {^/
-            /^try (RenderPass pass = encoder.createRenderPass(
-                    () -> "Flashback Plus depth conversion",
-                    depthCopyView, java.util.Optional.empty())) {
-                pass.setPipeline(depthCopyPipeline);
-                pass.bindTexture("InDepth", target.getDepthTextureView(),
-                        RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
-                pass.draw(3, 1, 0, 0);
-            }
-            encoder.copyTextureToBuffer(depthCopyTexture, depthBuffers[index], 0L, () -> {}, 0);
-            ^//^?} else {^/
             encoder.copyTextureToBuffer(texture, depthBuffers[index], 0L, () -> {}, 0);
-            /^?}^/
             depthFrameIds[index] = DepthCaptureState.captureFrameId();
             depthFences[index] = encoder.createFence();
-            /^? if >=26.2 {^/
-            /^encoder.submit();
-            // Flashback starts its color download immediately after renderLevel.
-            // Wait for this frame's depth copy so the EXR writer receives its
-            // matching depth buffer instead of permanently skipping the frame.
-            collectDepth(index, 1_000_000_000L);
-            ^//^?}^/
             writeIndex = (writeIndex + 1) % BUFFER_COUNT;
         } catch (RuntimeException e) {
             depthReadbackFailed = true;
@@ -162,57 +126,6 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         /^?}^/
     }
 
-    /^? if >=26.2 {^/
-    /^private void consumeWorldDepth(long frameId) {
-        int index = pendingWorldDepthIndex;
-        pendingWorldDepthIndex = -1;
-        if (index < 0 || depthFences[index] == null) {
-            com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
-                    "No pre-clear world-depth snapshot available for EXR frame {}", frameId);
-            return;
-        }
-        readDepthCopy(index, frameId, 1_000_000_000L);
-    }
-
-    private boolean discardDepthCopy(int index) {
-        GpuFence fence = depthFences[index];
-        if (fence == null) return true;
-        if (!fence.awaitCompletion(1_000_000_000L)) {
-            com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
-                    "World-depth GPU snapshot is still pending; deferring replacement of buffer {}", index);
-            return false;
-        }
-        fence.close();
-        depthFences[index] = null;
-        depthFrameIds[index] = -1L;
-        return true;
-    }
-
-    private void readDepthCopy(int index, long frameId, long timeoutNanos) {
-        GpuFence fence = depthFences[index];
-        if (fence == null || !fence.awaitCompletion(timeoutNanos)) {
-            com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
-                    "World-depth GPU snapshot did not complete for EXR frame {}", frameId);
-            return;
-        }
-        try (GpuBufferSlice.MappedView mapped = depthBuffers[index].slice().map(true, false)) {
-            ByteBuffer data = mapped.data().duplicate().order(ByteOrder.LITTLE_ENDIAN);
-            data.rewind();
-            var copy = DepthCaptureState.acquireBuffer();
-            java.nio.FloatBuffer source = data.asFloatBuffer();
-            for (int i = 0; i < source.remaining(); i++) copy.put(normalizeDepth(source.get(i)));
-            copy.rewind();
-            logDepthReadback(copy, index);
-            synchronized (DepthCaptureState.depthQueue) {
-                DepthCaptureState.depthQueue.addLast(new DepthCaptureState.DepthFrame(frameId, copy));
-            }
-        } finally {
-            fence.close();
-            depthFences[index] = null;
-            depthFrameIds[index] = -1L;
-        }
-    }
-    ^//^?}^/
     @Override
     public ByteBuffer captureHdr(RenderTarget target, int width, int height, float peakBrightness) {
         /^? if >=26.2 {^/
@@ -279,7 +192,11 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
                 () -> "Flashback Plus HDR10 parameters",
                 GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_UNIFORM, 16L);
         hdrCopyPipeline = RenderPipeline.builder()
-                .withLocation("flashbackplus_hdr_color_transform_blaze")
+                // String locations default to minecraft:, which Iris treats as
+                // an overridable vanilla program. Keep our utility pipeline
+                // in this mod's namespace.
+                .withLocation(ResourceLocation.fromNamespaceAndPath(
+                        "flashbackplus", "hdr_color_transform_blaze"))
                 .withVertexShader(ResourceLocation.fromNamespaceAndPath(
                         "flashbackplus", "core/flashbackplus_hdr_color_transform_blaze"))
                 .withFragmentShader(ResourceLocation.fromNamespaceAndPath(
@@ -345,10 +262,11 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             var copy = DepthCaptureState.acquireBuffer();
             java.nio.FloatBuffer source = data.asFloatBuffer();
             for (int i = 0; i < source.remaining(); i++) {
-                copy.put(normalizeDepth(source.get(i)));
+                float depth = source.get(i);
+                copy.put(depthReversed[index] ? normalizeDepth(depth) : depth);
             }
             copy.rewind();
-            logDepthReadback(copy, index);
+            logDepthReadback(source, copy, index);
             synchronized (DepthCaptureState.depthQueue) {
                 DepthCaptureState.depthQueue.addLast(
                         new DepthCaptureState.DepthFrame(depthFrameIds[index], copy));
@@ -361,38 +279,8 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     }
 
     private float normalizeDepth(float depth) {
-        // 26.2 reverse-Z is already converted by the depth-copy shader.
-        // Keep the readback value unchanged so it is not inverted twice.
-        return depth;
+        return 1.0f - depth;
     }
-
-    /^? if >=26.2 {^/
-    /^private void ensureDepthCopyTarget(int newWidth, int newHeight) {
-        if (depthCopyTexture != null && depthCopyTexture.getWidth(0) == newWidth
-                && depthCopyTexture.getHeight(0) == newHeight) return;
-        if (depthCopyView != null) depthCopyView.close();
-        if (depthCopyTexture != null) depthCopyTexture.close();
-        depthCopyTexture = RenderSystem.getDevice().createTexture(
-                "Flashback Plus depth conversion",
-                GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC,
-                GpuFormat.R32_FLOAT, newWidth, newHeight, 1, 1);
-        depthCopyView = RenderSystem.getDevice().createTextureView(depthCopyTexture);
-        if (depthCopyPipeline == null) {
-            depthCopyPipeline = RenderPipeline.builder()
-                    .withLocation("flashbackplus_depth_copy")
-                    .withVertexShader(ResourceLocation.fromNamespaceAndPath(
-                            "flashbackplus", "core/flashbackplus_depth_copy"))
-                    .withFragmentShader(ResourceLocation.fromNamespaceAndPath(
-                            "flashbackplus", "core/flashbackplus_depth_copy"))
-                    .withBindGroupLayout(BindGroupLayout.builder().withSampler("InDepth").build())
-                    .withColorTargetState(new ColorTargetState(java.util.Optional.empty(), GpuFormat.R32_FLOAT,
-                            ColorTargetState.WRITE_RED))
-                    .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
-                    .withCull(false)
-                    .build();
-        }
-    }
-    ^//^?}^/
 
     private boolean closeDepthBuffers() {
         boolean pending = false;
@@ -406,6 +294,8 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             depthFences[i] = null;
             depthBuffers[i] = null;
             depthFrameIds[i] = -1L;
+            depthReversed[i] = false;
+            depthSources[i] = null;
         }
         if (!pending) writeIndex = 0;
         return !pending;
@@ -423,11 +313,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         if (!RenderSystem.isOnRenderThread()) return false;
         if (!closeDepthBuffers()) return false;
         /^? if >=26.2 {^/
-        /^if (depthCopyView != null) depthCopyView.close();
-        if (depthCopyTexture != null) depthCopyTexture.close();
-        depthCopyView = null;
-        depthCopyTexture = null;
-        closeHdrTarget();
+        /^closeHdrTarget();
         ^//^?}^/
         return true;
     }
@@ -436,29 +322,44 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         releaseOnRenderThread();
     }
 
-    private void logDepthReadback(java.nio.FloatBuffer data, int bufferIndex) {
+    private void logDepthReadback(java.nio.FloatBuffer raw, java.nio.FloatBuffer converted, int bufferIndex) {
         int frame = depthDebugFrame++;
         if (frame >= 3 && frame % 30 != 0) return;
 
-        float min = Float.POSITIVE_INFINITY;
-        float max = Float.NEGATIVE_INFINITY;
-        int finite = 0;
-        int count = data.remaining();
+        float rawMin = Float.POSITIVE_INFINITY;
+        float rawMax = Float.NEGATIVE_INFINITY;
+        float convertedMin = Float.POSITIVE_INFINITY;
+        float convertedMax = Float.NEGATIVE_INFINITY;
+        int rawFinite = 0;
+        int convertedFinite = 0;
+        int count = converted.remaining();
         for (int i = 0; i < count; i++) {
-            float value = data.get(i);
-            if (Float.isFinite(value)) {
-                min = Math.min(min, value);
-                max = Math.max(max, value);
-                finite++;
+            float rawValue = raw.get(i);
+            if (Float.isFinite(rawValue)) {
+                rawMin = Math.min(rawMin, rawValue);
+                rawMax = Math.max(rawMax, rawValue);
+                rawFinite++;
+            }
+            float convertedValue = converted.get(i);
+            if (Float.isFinite(convertedValue)) {
+                convertedMin = Math.min(convertedMin, convertedValue);
+                convertedMax = Math.max(convertedMax, convertedValue);
+                convertedFinite++;
             }
         }
 
         int center = Math.max(0, Math.min(count - 1, (height / 2) * width + width / 2));
         int quarter = Math.max(0, Math.min(count - 1, (height / 4) * width + width / 4));
+        int thirdQuarter = Math.max(0, count - 1 - quarter);
         com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.info(
-                "26.2 depth readback #{}: buffer={}, size={}x{}, finite={}/{}, min={}, max={}, q1={}, center={}, q3={}",
-                frame, bufferIndex, width, height, finite, count, min, max,
-                data.get(quarter), data.get(center), data.get(Math.max(0, count - 1 - quarter)));
+                "26.2 depth readback #{}: source={}, buffer={}, size={}x{}, "
+                        + "raw[finite={}/{}, min={}, max={}, q1={}, center={}, q3={}], "
+                        + "standard[finite={}/{}, min={}, max={}, q1={}, center={}, q3={}]",
+                frame, depthSources[bufferIndex], bufferIndex, width, height,
+                rawFinite, count, rawMin, rawMax,
+                raw.get(quarter), raw.get(center), raw.get(thirdQuarter),
+                convertedFinite, count, convertedMin, convertedMax,
+                converted.get(quarter), converted.get(center), converted.get(thirdQuarter));
     }
 }
 *///?}

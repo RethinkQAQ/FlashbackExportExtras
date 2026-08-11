@@ -70,18 +70,23 @@ public class MixinStartExportWindow {
             FlashbackPlusConfig.save();
         }
         ImGui.sameLine();
-        /*? if depth_export {*/
+        /*? if >=26.2 {*/
         /*if (ImGui.radioButton(I18n.get("flashbackplus.format_exr"), isExr)) {
             FlashbackPlusConfig.INSTANCE.exportAsExr = true;
             FlashbackPlusConfig.save();
         }
-        *//*?} else {*/
-        if (isExr) {
+        *//*?} elif >=26.1 {*/
+        /*if (isExr) {
             FlashbackPlusConfig.INSTANCE.exportAsExr = false;
             FlashbackPlusConfig.save();
         }
         ImGui.textDisabled(I18n.get("flashbackplus.format_exr"));
         ImGui.textWrapped(I18n.get("flashbackplus.exr_unavailable_2612"));
+        *//*?} else {*/
+        if (ImGui.radioButton(I18n.get("flashbackplus.format_exr"), isExr)) {
+            FlashbackPlusConfig.INSTANCE.exportAsExr = true;
+            FlashbackPlusConfig.save();
+        }
         /*?}*/
 
         if (FlashbackPlusConfig.INSTANCE.exportAsExr) {

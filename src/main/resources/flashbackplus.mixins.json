@@ -6,6 +6,8 @@
   "compatibilityLevel": "${java}",
   "client": [
     "MixinGameRenderer",
+    "MixinGlCommandEncoderDepthCopy",
+    "MixinIrisRenderingPipeline",
     "AsyncFileDialogsAccessor",
     "MixinMinecraftShutdown",
     "MixinStartExportWindow",
