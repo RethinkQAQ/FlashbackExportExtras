@@ -8,6 +8,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.combo_options.VideoContainer;
 import com.moulberry.flashback.exporting.*;
 import com.rethinkqaq.flashbackplus.FlashbackPlusConfig;
+import com.rethinkqaq.flashbackplus.FlashbackPlusConfig.ExportMode;
 import com.rethinkqaq.flashbackplus.Flashbackplus;
 import com.rethinkqaq.flashbackplus.exporting.*;
 import com.rethinkqaq.flashbackplus.gpu.GpuExportBackendFactory;
@@ -50,7 +51,7 @@ public class MixinExportJob {
     private boolean flashbackplus_dummyFramesOverridden;
 
     /*? if hdr {*/
-    /*? if <26.2 {*/
+    /*? if <26.1 {*/
     @Unique
     private HdrColorTransformShader hdrColorShader;
 
@@ -73,19 +74,12 @@ public class MixinExportJob {
                 "ExportJob creating writer: output={}, container={}, resolution={}x{}, temp={}",
                 settings.output(), settings.container(), settings.resolutionX(), settings.resolutionY(), tempFileName);
         /*? if hdr {*/
-        isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
+        isHdrMode = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.HDR10
+                && HdrExportState.isAvailable() && GpuExportBackendFactory.get().supportsHdr();
         /*?} else {*/
         /*isHdrMode = false;
         *//*?}*/
-        isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
-        /*? if >=26.2 {*/
-        /*?} elif >=26.1 {*/
-        /*if (isExrMode) {
-            isExrMode = false;
-            Flashbackplus.LOGGER.warn("OpenEXR export is disabled on 26.1.2: its Blaze3D depth readback is incomplete");
-        }
-        *//*?}*/
-
+        isExrMode = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.EXR;
         if (isExrMode) {
             Path outputDir = settings.output();
             int w = settings.resolutionX();
@@ -97,7 +91,7 @@ public class MixinExportJob {
             Path tempPath = java.nio.file.Path.of(tempFileName);
             int w = settings.resolutionX();
             int h = settings.resolutionY();
-            Flashbackplus.LOGGER.info("HDR export temp: {} → final: {}", tempPath, settings.output());
+            Flashbackplus.LOGGER.info("HDR export temporary path: {}, final path: {}", tempPath, settings.output());
             int bitrate = settings.bitrate() > 0
                     ? settings.bitrate()
                     : Math.min(288_000_000,
@@ -121,20 +115,12 @@ public class MixinExportJob {
         Flashbackplus.LOGGER.info("ExportJob doExport started: writer={}",
                 videoWriter == null ? "null" : videoWriter.getClass().getName());
         /*? if hdr {*/
-        isHdrMode = FlashbackPlusConfig.INSTANCE.hdrExport && HdrExportState.isAvailable();
+        isHdrMode = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.HDR10
+                && HdrExportState.isAvailable() && GpuExportBackendFactory.get().supportsHdr();
         /*?} else {*/
         /*isHdrMode = false;
         *//*?}*/
-        // Keep the mode decision identical to redirectCreateWriter. HDR takes
-        // precedence, so it must not accidentally activate depth capture.
-        isExrMode = FlashbackPlusConfig.INSTANCE.exportAsExr && !isHdrMode;
-        /*? if >=26.2 {*/
-        /*?} elif >=26.1 {*/
-        /*if (isExrMode) {
-            isExrMode = false;
-            Flashbackplus.LOGGER.warn("OpenEXR export request rejected on 26.1.2: depth readback is unavailable");
-        }
-        *//*?}*/
+        isExrMode = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.EXR;
         if (isExrMode) {
             com.moulberry.flashback.configuration.FlashbackConfigV1 config =
                     com.moulberry.flashback.Flashback.getConfig();
@@ -162,7 +148,7 @@ public class MixinExportJob {
             HdrExportState.height = h;
             HdrExportState.setPeakBrightness((float) FlashbackPlusConfig.INSTANCE.hdrPeakBrightness);
             HdrExportState.activate();
-            /*? if <26.2 {*/
+            /*? if <26.1 {*/
             hdrColorShader = new HdrColorTransformShader();
             hdrFrameCapture = new HdrFrameCapture();
             /*?}*/
@@ -211,7 +197,7 @@ public class MixinExportJob {
                 target, target.width, target.height, peak);
         if (hdrData != null && hdrWriterRef != null) hdrWriterRef.addHdrFrame(hdrData);
         *//*?}*/
-        /*? if <26.2 {*/
+        /*? if <26.1 {*/
 
         // Step 1: Color transform — scRGB-nl → BT.2020 + PQ
         /*? if >=1.21.5 {*/
@@ -327,7 +313,7 @@ public class MixinExportJob {
 
         // Drain remaining HDR frames
         /*? if hdr {*/
-        /*? if <26.2 {*/
+        /*? if <26.1 {*/
         if (isHdrMode && hdrFrameCapture != null) {
             ByteBuffer remaining = hdrFrameCapture.collect();
             if (remaining != null && hdrWriterRef != null) {
@@ -342,7 +328,7 @@ public class MixinExportJob {
         /*?}*/
 
         /*? if hdr {*/
-        /*? if <26.2 {*/
+        /*? if <26.1 {*/
         // HDR cleanup
         if (hdrColorShader != null) {
             hdrColorShader.close();

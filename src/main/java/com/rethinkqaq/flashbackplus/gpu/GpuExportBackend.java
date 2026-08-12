@@ -6,8 +6,10 @@ import java.nio.ByteBuffer;
 
 /** Backend boundary for GPU work performed during Flashback export. */
 public interface GpuExportBackend extends AutoCloseable {
-    boolean supportsDepthReadback();
     boolean supportsHdr();
+
+    /** Captures depth before the game clears the main depth attachment. */
+    default void snapshotDepth(RenderTarget target, int width, int height, float depthFar) {}
 
     void captureDepth(RenderTarget target, int width, int height, float depthFar);
 

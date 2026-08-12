@@ -27,13 +27,21 @@ dependencies {
     minecraft("com.mojang:minecraft:${sc.current.version}")
     loomx.applyMojangMappings()
 
+
+    val lwjglVersion = if (sc.current.parsed >= "26.1") "3.4.1" else "3.3.3"
+//    runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion")
+
     modImplementation("net.fabricmc:fabric-loader:${property("deps.fabric_loader")}")
     val fabricApiVersion = property("deps.fabric_api") as String
     modImplementation("net.fabricmc.fabric-api:fabric-api:$fabricApiVersion")
     modImplementation("maven.modrinth:flashback:${property("deps.flashback")}-fabric,${sc.current.version}")
 
-    modImplementation("maven.modrinth:sodium:${property("deps.sodium")}")
-    modImplementation("maven.modrinth:iris:${property("deps.iris")}")
+    // Optional compatibility targets: available to the compiler and local
+    // development runtime, but never declared as production requirements.
+    modCompileOnly("maven.modrinth:sodium:${property("deps.sodium")}")
+    modLocalRuntime("maven.modrinth:sodium:${property("deps.sodium")}")
+    modCompileOnly("maven.modrinth:iris:${property("deps.iris")}")
+    modLocalRuntime("maven.modrinth:iris:${property("deps.iris")}")
 
     // Iris ships JCPP as a nested jar. Loom's development runtime does not
     // expose nested mod jars on the runClient classpath, so provide the same
@@ -46,9 +54,6 @@ dependencies {
     runtimeOnly("io.github.douira:glsl-transformer:3.0.0-pre3")
     runtimeOnly("org.antlr:antlr4-runtime:4.13.1")
     runtimeOnly("org.antlr:antlr4:4.13.1")
-
-    modLocalRuntime("org.apache.httpcomponents:httpclient:4.5.14")
-    modLocalRuntime("org.apache.httpcomponents:httpcore:4.4.16")
 
     modLocalRuntime("com.moulberry:mixinconstraints:1.0.8")
     if (sc.current.parsed < "26.1") {
@@ -69,7 +74,6 @@ dependencies {
     // 26.x ships LWJGL 3.4.1. TinyEXR must use the same binding version as
     // Minecraft's LWJGL core; mixing 3.3.3 TinyEXR with 3.4.1 core fails at
     // runtime with EXRHeader.NoSuchFieldError (Unsafe field layout changed).
-    val lwjglVersion = if (sc.current.parsed >= "26.1") "3.4.1" else "3.3.3"
     val lwjglNatives = when {
         org.gradle.internal.os.OperatingSystem.current().isMacOsX ->
             if (org.gradle.internal.os.OperatingSystem.current().nativePrefix.contains("aarch64")) {
@@ -118,11 +122,13 @@ if ((findProperty("deps.hdr_mod") as String?).isNullOrBlank()) {
     }
 }
 
-// Keep version-specific GPU implementations out of source sets that cannot
-// compile their Minecraft-specific Blaze3D API.
-if (sc.current.parsed < "26.1") {
+// 26.1.2 has no complete abstract HDR readback. Keep its export surface
+// honest instead of compiling the obsolete raw-OpenGL HDR implementation.
+if (sc.current.parsed >= "26.1") {
     sourceSets.named("main") {
-        java.exclude("**/gpu/Blaze3dExportBackend.java")
+        java.exclude("**/HdrColorTransformShader.java")
+        java.exclude("**/HdrFrameCapture.java")
+        java.exclude("**/gpu/LegacyOpenGlExportBackend.java")
     }
 }
 
@@ -139,7 +145,9 @@ if (minecraftCompatibility != null) {
         "minecraft" to minecraftCompatibility,
         "loader" to (findProperty("deps.fabric_loader") as String)
     )
-    val mixinResourceProperties = mapOf("java" to "JAVA_${requiredJava.majorVersion}")
+    val mixinResourceProperties = mapOf(
+        "java" to "JAVA_${requiredJava.majorVersion}"
+    )
 
     tasks.withType<ProcessResources>().configureEach {
         inputs.properties(resourceProperties)
@@ -149,16 +157,12 @@ if (minecraftCompatibility != null) {
             expand(resourceProperties)
         }
 
+        // The mixin list is fixed; only the Java compatibility placeholder is
+        // version-dependent.
         filesMatching("*.mixins.json") {
             expand(mixinResourceProperties)
         }
-    }
-}
 
-if (sc.current.parsed >= "26.2") {
-    sourceSets.named("main") {
-        java.exclude("**/HdrColorTransformShader.java")
-        java.exclude("**/HdrFrameCapture.java")
     }
 }
 

@@ -1,6 +1,6 @@
 package com.rethinkqaq.flashbackplus.exporting;
 
-//? if <26.2 {
+//? if <26.1 {
 
 import net.minecraft.client.Minecraft;
 import org.lwjgl.opengl.GL11;

@@ -37,6 +37,9 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     private final long[] depthFrameIds = new long[BUFFER_COUNT];
     private final boolean[] depthReversed = new boolean[BUFFER_COUNT];
     private final String[] depthSources = new String[BUFFER_COUNT];
+    /^? if <26.2 {^/
+    /*private int pendingWorldDepthIndex = -1;
+    ^//^?}^/
     private int writeIndex;
     private int width;
     private int height;
@@ -49,13 +52,6 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     private GpuBuffer hdrReadbackBuffer;
     private GpuBuffer hdrUniformBuffer;
     ^//^?}^/
-    @Override public boolean supportsDepthReadback() {
-        /^? if >=26.2 {^/
-        /^return true;
-        ^//^?} else {^/
-        return false;
-        /^?}^/
-    }
     @Override public boolean supportsHdr() {
         /^? if >=26.2 {^/
         /^return true;
@@ -63,6 +59,36 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         return false;
         /^?}^/
     }
+    @Override
+    public void snapshotDepth(RenderTarget target, int width, int height, float depthFar) {
+        /^? if <26.2 {^/
+        /*if (target == null || !target.useDepth || target.getDepthTexture() == null
+                || depthReadbackFailed || pendingWorldDepthIndex >= 0) return;
+        try {
+            RenderSystem.assertOnRenderThread();
+            if (!ensureDepthBuffers(width, height)) return;
+            int index = writeIndex;
+            if (depthFences[index] != null) {
+                collectDepth(index, 1_000_000_000L);
+                if (depthFences[index] != null) return;
+            }
+            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+            encoder.copyTextureToBuffer(target.getDepthTexture(), depthBuffers[index], 0L, () -> {}, 0);
+            depthFrameIds[index] = -1L;
+            depthReversed[index] = false;
+            depthSources[index] = "Minecraft 26.1 pre-clear depth";
+            depthFences[index] = encoder.createFence();
+            pendingWorldDepthIndex = index;
+            writeIndex = (writeIndex + 1) % BUFFER_COUNT;
+        } catch (RuntimeException e) {
+            depthReadbackFailed = true;
+            closeDepthBuffers();
+            com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.error(
+                    "26.1 pre-clear depth snapshot failed", e);
+        }
+        ^//^?}^/
+    }
+
     @Override
     public void captureDepth(RenderTarget target, int width, int height, float depthFar) {
         /^? if >=26.2 {^/
@@ -108,6 +134,20 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         try {
             RenderSystem.assertOnRenderThread();
             if (!ensureDepthBuffers(width, height)) return;
+            /^? if <26.2 {^/
+            /*if (pendingWorldDepthIndex >= 0) {
+                int index = pendingWorldDepthIndex;
+                pendingWorldDepthIndex = -1;
+                depthFrameIds[index] = DepthCaptureState.captureFrameId();
+                collectDepth(index, 1_000_000_000L);
+                if (depthFences[index] != null) {
+                    com.rethinkqaq.flashbackplus.Flashbackplus.LOGGER.warn(
+                            "26.1 pre-clear depth readback did not complete for frame {}",
+                            depthFrameIds[index]);
+                }
+                return;
+            }
+            ^//^?}^/
             collectDepth();
             int index = writeIndex;
             if (depthFences[index] != null) return;
@@ -115,7 +155,10 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             encoder.copyTextureToBuffer(texture, depthBuffers[index], 0L, () -> {}, 0);
             depthFrameIds[index] = DepthCaptureState.captureFrameId();
+            depthReversed[index] = false;
+            depthSources[index] = "Minecraft 26.1 main depth (standard-Z)";
             depthFences[index] = encoder.createFence();
+            collectDepth(index, 1_000_000_000L);
             writeIndex = (writeIndex + 1) % BUFFER_COUNT;
         } catch (RuntimeException e) {
             depthReadbackFailed = true;
@@ -275,6 +318,27 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             fence.close();
             depthFences[index] = null;
         }
+        ^//^?} elif >=26.1 {^/
+        /^try (GpuBuffer.MappedView mapped = RenderSystem.getDevice().createCommandEncoder()
+                .mapBuffer(depthBuffers[index], true, false)) {
+                ByteBuffer data = mapped.data().duplicate().order(ByteOrder.LITTLE_ENDIAN);
+                data.rewind();
+                var copy = DepthCaptureState.acquireBuffer();
+                java.nio.FloatBuffer source = data.asFloatBuffer();
+                for (int i = 0; i < source.remaining(); i++) {
+                    float depth = source.get(i);
+                    copy.put(depthReversed[index] ? normalizeDepth(depth) : depth);
+                }
+                copy.rewind();
+                logDepthReadback(source, copy, index);
+                synchronized (DepthCaptureState.depthQueue) {
+                    DepthCaptureState.depthQueue.addLast(
+                            new DepthCaptureState.DepthFrame(depthFrameIds[index], copy));
+                }
+        } finally {
+            fence.close();
+            depthFences[index] = null;
+        }
         ^//^?}^/
     }
 
@@ -298,6 +362,9 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             depthSources[i] = null;
         }
         if (!pending) writeIndex = 0;
+        /^? if <26.2 {^/
+        /*if (!pending) pendingWorldDepthIndex = -1;
+        ^//^?}^/
         return !pending;
     }
 

@@ -64,6 +64,13 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackplus.exporting
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
     private void flashbackplus$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
+        if (DepthCaptureState.active) {
+            RenderTarget target = Minecraft.getInstance().getMainRenderTarget();
+            if (target != null) {
+                GpuExportBackendFactory.get().snapshotDepth(
+                        target, DepthCaptureState.width, DepthCaptureState.height, DepthCaptureState.depthFar);
+            }
+        }
         encoder.clearDepthTexture(texture, depth);
     }
     *//*?} elif >=1.21.5 {*/
@@ -167,8 +174,8 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackplus.exporting
         /*// 26.2 follows ReplayMod's strategy: suppress the clear and copy the
         // main RenderTarget depth beside the matching colour download.
         *//*?} elif >=26.1 {*/
-        /*// 26.1.2 does not expose a complete depth readback implementation.
-        // Deliberately do not fall back to raw OpenGL here.
+        /*// 26.1.x copies the matching RenderTarget depth through the Blaze3D
+        // staging-buffer path when ExportJob starts the colour download.
         *//*?} else {*/
         if (!DepthCaptureState.active) return;
         Minecraft mc = Minecraft.getInstance();

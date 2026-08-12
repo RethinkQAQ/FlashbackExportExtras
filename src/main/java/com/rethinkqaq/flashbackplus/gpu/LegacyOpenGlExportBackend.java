@@ -6,7 +6,6 @@ import java.nio.ByteBuffer;
 
 /** Transitional backend for pre-26.1 versions. */
 public final class LegacyOpenGlExportBackend implements GpuExportBackend {
-    @Override public boolean supportsDepthReadback() { return true; }
     @Override public boolean supportsHdr() { return true; }
     @Override public void captureDepth(RenderTarget target, int width, int height, float depthFar) {}
     @Override public ByteBuffer captureHdr(RenderTarget target, int width, int height, float peakBrightness) { return null; }

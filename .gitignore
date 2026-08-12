@@ -21,3 +21,4 @@ hs_err_pid*
 run
 bin/
 /.gradle-user-home/
+/.gradle-user/

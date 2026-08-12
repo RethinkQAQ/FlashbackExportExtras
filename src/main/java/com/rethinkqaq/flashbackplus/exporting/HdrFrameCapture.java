@@ -1,6 +1,6 @@
 package com.rethinkqaq.flashbackplus.exporting;
 
-//? if <26.2 {
+//? if <26.1 {
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import org.lwjgl.opengl.GL32;

@@ -13,7 +13,7 @@ import java.util.Queue;
  * Lives outside the mixin class to satisfy Mixin's field visibility rules.
  *
  * Also manages a small pool of FloatBuffers to avoid per-frame
- * native allocation overhead during depth PBO readback.
+ * native allocation overhead during depth readback.
  */
 public class DepthCaptureState {
 
@@ -58,7 +58,6 @@ public class DepthCaptureState {
      * the corresponding color image.
      */
     private static FloatBuffer pendingWorldDepth;
-    private static long nextDepthFrameId;
     private static long nextExportFrameId;
 
     /** Frame ID explicitly requested by ExportJob for the frame being rendered. */
@@ -78,7 +77,7 @@ public class DepthCaptureState {
         if (active) irisShaderPackRenderedThisFrame = true;
     }
 
-    // === Buffer pool for PBO readback copies ===
+    // === Buffer pool for readback copies ===
     private static final int POOL_CAPACITY = 4;
     private static final Queue<FloatBuffer> bufferPool = new ArrayDeque<>();
 
@@ -106,17 +105,13 @@ public class DepthCaptureState {
         }
     }
 
-    public static synchronized long nextDepthFrameId() {
-        return nextDepthFrameId++;
-    }
-
     public static synchronized long nextExportFrameId() {
         return nextExportFrameId++;
     }
 
-    /** Uses the export frame ID when one is active, otherwise a standalone depth ID. */
+    /** Returns the export frame ID requested for the current render. */
     public static synchronized long captureFrameId() {
-        return requestedFrameId >= 0L ? requestedFrameId : nextDepthFrameId++;
+        return requestedFrameId;
     }
 
     public static synchronized void replacePendingWorldDepth(FloatBuffer data) {
@@ -149,10 +144,7 @@ public class DepthCaptureState {
         }
     }
 
-    /** Runnable to clean up PBOs on export end. Set by MixinGameRenderer. */
-    public static volatile Runnable pboCleanup = null;
-
-    /** Clears all state for a new export. Also runs PBO cleanup. */
+    /** Clears all state for a new export. */
     public static void reset() {
         active = false;
         width = height = 0;
@@ -162,7 +154,6 @@ public class DepthCaptureState {
         camX = camY = camZ = 0.0;
         camYaw = camPitch = 0.0f;
         depthFar = 1000.0f;
-        nextDepthFrameId = 0;
         nextExportFrameId = 0;
         requestedFrameId = -1L;
         irisShaderPackRenderedThisFrame = false;
@@ -180,11 +171,5 @@ public class DepthCaptureState {
             bufferPool.clear();
         }
 
-        // Clean up PBOs on the render thread next frame
-        Runnable cleanup = pboCleanup;
-        pboCleanup = null;
-        if (cleanup != null) {
-            cleanup.run();
-        }
     }
 }

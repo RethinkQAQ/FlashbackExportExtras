@@ -1,6 +1,7 @@
 package com.rethinkqaq.flashbackplus.mixins;
 
-/*? if >=26.2 {*/
+import com.rethinkqaq.flashbackplus.utils.Dummy;
+/*? if >=26.1 {*/
 /*import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.opengl.DirectStateAccess;
 import com.mojang.blaze3d.textures.GpuTexture;
@@ -12,10 +13,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 *//*?}*/
 import org.spongepowered.asm.mixin.Mixin;
 
-/** Repairs only the OpenGL attachment selection for abstract depth readback. */
-@Mixin(targets = "com.mojang.blaze3d.opengl.GlCommandEncoder", remap = false)
+/*? if >=26.1 {*/
+/*@Mixin(targets = "com.mojang.blaze3d.opengl.GlCommandEncoder", remap = false)
+*//*?} else {*/
+@Mixin(Dummy.class)
+/*?}*/
 public class MixinGlCommandEncoderDepthCopy {
-    /*? if >=26.2 {*/
+    /*? if >=26.1 {*/
     /*@Unique private GpuTexture flashbackplus$copyTexture;
 
     @Inject(method = "copyTextureToBuffer(Lcom/mojang/blaze3d/textures/GpuTexture;Lcom/mojang/blaze3d/buffers/GpuBuffer;JLjava/lang/Runnable;IIIII)V",
@@ -34,9 +38,11 @@ public class MixinGlCommandEncoderDepthCopy {
                                                     int depthTexture, int mipLevel, int bindTarget) {
         GpuTexture texture = flashbackplus$copyTexture;
         if (texture != null && texture.getFormat().hasDepthAspect() && depthTexture == 0) {
-            access.bindFrameBufferTextures(framebuffer, 0, colorTexture, mipLevel, bindTarget);
+            ((DirectStateAccessInvoker) access).flashbackplus$bindFrameBufferTextures(
+                    framebuffer, 0, colorTexture, mipLevel, bindTarget);
         } else {
-            access.bindFrameBufferTextures(framebuffer, colorTexture, depthTexture, mipLevel, bindTarget);
+            ((DirectStateAccessInvoker) access).flashbackplus$bindFrameBufferTextures(
+                    framebuffer, colorTexture, depthTexture, mipLevel, bindTarget);
         }
     }
 

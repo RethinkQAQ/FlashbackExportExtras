@@ -7,7 +7,6 @@
   "flashbackplus.relative_camera_path": "Relative Origin",
   "flashbackplus.relative_camera_path_tooltip": "Shift the camera path so the first frame is at (0,0,0).\nEasier to position assets in Blender.",
   "flashbackplus.exr_info": "Exports multi-layer OpenEXR frames with color and depth.\nAnti-aliasing is disabled for depth accuracy.",
-  "flashbackplus.exr_unavailable_2612": "OpenEXR depth export is temporarily unavailable on 26.1.2 because its Blaze3D depth readback is incomplete.",
   "flashbackplus.linearize_depth": "Linearize Depth (World-Space)",
   "flashbackplus.linearize_depth_tooltip": "Convert NDC depth [0,1] to world-space distance.\nRecommended for Blender compositing — depth values become actual block distances.",
   "flashbackplus.hdr_export": "HDR Export (HDR10)",

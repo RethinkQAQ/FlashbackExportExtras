@@ -4,7 +4,9 @@ import com.moulberry.flashback.configuration.FlashbackConfigV1;
 import com.moulberry.flashback.combo_options.VideoCodec;
 import com.moulberry.flashback.state.EditorState;
 import com.rethinkqaq.flashbackplus.FlashbackPlusConfig;
+import com.rethinkqaq.flashbackplus.FlashbackPlusConfig.ExportMode;
 import com.rethinkqaq.flashbackplus.exporting.HdrExportState;
+import com.rethinkqaq.flashbackplus.gpu.GpuExportBackendFactory;
 import imgui.moulberry90.ImGui;
 import net.minecraft.client.resources.language.I18n;
 import org.spongepowered.asm.mixin.Mixin;
@@ -64,32 +66,18 @@ public class MixinStartExportWindow {
         ImGui.text(I18n.get("flashbackplus.export_format") + ":");
         ImGui.sameLine();
 
-        boolean isExr = FlashbackPlusConfig.INSTANCE.exportAsExr;
+        boolean isExr = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.EXR;
         if (ImGui.radioButton(I18n.get("flashbackplus.format_video"), !isExr)) {
-            FlashbackPlusConfig.INSTANCE.exportAsExr = false;
+            FlashbackPlusConfig.INSTANCE.setExportMode(ExportMode.VIDEO);
             FlashbackPlusConfig.save();
         }
         ImGui.sameLine();
-        /*? if >=26.2 {*/
-        /*if (ImGui.radioButton(I18n.get("flashbackplus.format_exr"), isExr)) {
-            FlashbackPlusConfig.INSTANCE.exportAsExr = true;
-            FlashbackPlusConfig.save();
-        }
-        *//*?} elif >=26.1 {*/
-        /*if (isExr) {
-            FlashbackPlusConfig.INSTANCE.exportAsExr = false;
-            FlashbackPlusConfig.save();
-        }
-        ImGui.textDisabled(I18n.get("flashbackplus.format_exr"));
-        ImGui.textWrapped(I18n.get("flashbackplus.exr_unavailable_2612"));
-        *//*?} else {*/
         if (ImGui.radioButton(I18n.get("flashbackplus.format_exr"), isExr)) {
-            FlashbackPlusConfig.INSTANCE.exportAsExr = true;
+            FlashbackPlusConfig.INSTANCE.setExportMode(ExportMode.EXR);
             FlashbackPlusConfig.save();
         }
-        /*?}*/
 
-        if (FlashbackPlusConfig.INSTANCE.exportAsExr) {
+        if (FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.EXR) {
             // Force container to PNG_SEQUENCE (triggers folder picker)
             config.internalExport.container =
                     com.moulberry.flashback.combo_options.VideoContainer.PNG_SEQUENCE;
@@ -129,22 +117,18 @@ public class MixinStartExportWindow {
 
         /*? if hdr {*/
         // === HDR Export option (only shown when HDR Mod is available) ===
-        if (HdrExportState.isAvailable()) {
+        if (HdrExportState.isAvailable() && GpuExportBackendFactory.get().supportsHdr()) {
             ImGui.spacing();
-            boolean hdr = FlashbackPlusConfig.INSTANCE.hdrExport;
+            boolean hdr = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.HDR10;
             if (ImGui.checkbox(I18n.get("flashbackplus.hdr_export"), hdr)) {
-                FlashbackPlusConfig.INSTANCE.hdrExport = !hdr;
-                // HDR is exclusive with EXR
-                if (FlashbackPlusConfig.INSTANCE.hdrExport) {
-                    FlashbackPlusConfig.INSTANCE.exportAsExr = false;
-                }
+                FlashbackPlusConfig.INSTANCE.setExportMode(hdr ? ExportMode.VIDEO : ExportMode.HDR10);
                 FlashbackPlusConfig.save();
             }
             if (ImGui.isItemHovered()) {
                 ImGui.setTooltip(I18n.get("flashbackplus.hdr_export_tooltip"));
             }
 
-            if (FlashbackPlusConfig.INSTANCE.hdrExport) {
+            if (FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.HDR10) {
                 // Peak brightness slider
                 int[] peak = {FlashbackPlusConfig.INSTANCE.hdrPeakBrightness};
                 if (ImGui.sliderInt(I18n.get("flashbackplus.hdr_peak_brightness"), peak, 500, 4000)) {
