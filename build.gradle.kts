@@ -46,7 +46,7 @@ dependencies {
     // Iris ships JCPP as a nested jar. Loom's development runtime does not
     // expose nested mod jars on the runClient classpath, so provide the same
     // library explicitly for shaderpack parsing. This is runtime-only and is
-    // not bundled into Flashback Plus or declared as a mod dependency.
+    // not bundled into Flashback Export Extras or declared as a mod dependency.
     runtimeOnly("org.anarres:jcpp:1.4.14")
     // Iris also embeds these shader transformation libraries. Loom does not
     // put nested Iris jars on runClient's classpath, so expose them explicitly
@@ -110,25 +110,6 @@ java {
     targetCompatibility = requiredJava
     toolchain {
         languageVersion = JavaLanguageVersion.of(requiredJava.majorVersion)
-    }
-}
-
-if ((findProperty("deps.hdr_mod") as String?).isNullOrBlank()) {
-    // HDR export implementation is unavailable on the intermediate 1.21.4-1.21.8 versions.
-    sourceSets.named("main") {
-        java.exclude("**/HdrColorTransformShader.java")
-        java.exclude("**/HdrFrameCapture.java")
-        java.exclude("**/HdrVideoWriter.java")
-    }
-}
-
-// 26.1.2 has no complete abstract HDR readback. Keep its export surface
-// honest instead of compiling the obsolete raw-OpenGL HDR implementation.
-if (sc.current.parsed >= "26.1") {
-    sourceSets.named("main") {
-        java.exclude("**/HdrColorTransformShader.java")
-        java.exclude("**/HdrFrameCapture.java")
-        java.exclude("**/gpu/LegacyOpenGlExportBackend.java")
     }
 }
 

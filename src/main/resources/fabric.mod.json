@@ -11,10 +11,10 @@
   "environment": "client",
   "entrypoints": {
     "main": [
-      "com.rethinkqaq.flashbackplus.Flashbackplus"
+      "com.rethinkqaq.flashbackexportextras.Flashbackplus"
     ],
     "client": [
-      "com.rethinkqaq.flashbackplus.Flashbackplus"
+      "com.rethinkqaq.flashbackexportextras.Flashbackplus"
     ]
   },
   "mixins": [

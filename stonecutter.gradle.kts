@@ -9,6 +9,9 @@ stonecutter parameters {
     swaps["minecraft"] = "\"${node.metadata.version}\";"
     constants["release"] = true
     constants["hdr"] = node.metadata.version !in setOf("1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8")
+    constants["legacy_hdr"] = node.metadata.version !in setOf("1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8")
+            && node.metadata.version !in setOf("26.1.2", "26.2")
+    constants["mc_26_1_2"] = node.metadata.version == "26.1.2"
     dependencies["fapi"] = node.project.property("deps.fabric_api") as String
 
     replacements {

@@ -33,4 +33,4 @@ stonecutter {
     }
 }
 
-rootProject.name = "Flashback Plus"
+rootProject.name = "Flashback Export Extras"
