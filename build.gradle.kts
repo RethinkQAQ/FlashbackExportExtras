@@ -1,11 +1,9 @@
 import org.gradle.language.jvm.tasks.ProcessResources
-import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.jvm.tasks.Jar
 
 plugins {
     // Applies the correct Loom variant for the active Minecraft version.
     id("dev.kikugie.loom-back-compat")
-    id("com.github.hierynomus.license") version "0.16.1"
 }
 
 val baseModVersion = providers.gradleProperty("mod.version").get()
@@ -17,11 +15,6 @@ val effectiveModVersion = buildNumber?.let { "$baseModVersion-build.$it" } ?: ba
 // DO NOT set group directly; each Stonecutter version supplies it from its gradle.properties.
 version = "$effectiveModVersion+${sc.current.version}"
 base.archivesName = property("mod.id") as String
-
-license {
-    header = rootProject.file("HEADER.txt")
-    include("**/*.java")
-}
 
 val requiredJava = if (sc.current.parsed >= "26.1") {
     JavaVersion.VERSION_25
@@ -159,15 +152,6 @@ if (minecraftCompatibility != null) {
         }
 
     }
-}
-
-// Format license headers before compilation and before any development run.
-// This keeps `./gradlew build` and `./gradlew runClient` self-contained.
-tasks.withType<JavaCompile>().configureEach {
-    dependsOn("licenseFormat")
-}
-tasks.matching { it.name == "build" || it.name.startsWith("run") }.configureEach {
-    dependsOn("licenseFormat")
 }
 
 // Distribute the license text with every produced JAR.
