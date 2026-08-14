@@ -167,6 +167,7 @@ tasks {
         group = "build"
         description = "Builds mod jars and copies results to build/libs/{mod version}/{Minecraft version}/"
         from(loomx.modJar.flatMap { it.archiveFile }, loomx.modSourcesJar.flatMap { it.archiveFile })
+        rename("-dev\\.jar$", ".jar")
         into(rootProject.layout.buildDirectory.dir("libs/$effectiveModVersion/${sc.current.version}"))
     }
 
