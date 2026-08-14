@@ -1,4 +1,5 @@
 import org.gradle.language.jvm.tasks.ProcessResources
+import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.jvm.tasks.Jar
 
 plugins {
@@ -157,6 +158,7 @@ if (minecraftCompatibility != null) {
 // Distribute the license text with every produced JAR.
 tasks.withType<Jar>().configureEach {
     from(rootProject.file("LICENSE.txt"))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
 tasks {
