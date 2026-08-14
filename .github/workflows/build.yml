@@ -1,0 +1,15 @@
+name: Build Flashback Export Extras
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-mods.yml
+    with:
+      release: false

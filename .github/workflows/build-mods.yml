@@ -1,0 +1,159 @@
+name: Reusable Minecraft build
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: Whether this is a release build.
+        required: false
+        type: boolean
+        default: false
+      changelog:
+        description: Release changelog passed to the publishing workflow.
+        required: false
+        type: string
+        default: ""
+      version_type:
+        description: Platform release type.
+        required: false
+        type: string
+        default: release
+    outputs:
+      artifact_name:
+        description: Name of the staging artifact.
+        value: ${{ jobs.build.outputs.artifact_name }}
+      publish_matrix:
+        description: Per-Minecraft-version publishing matrix.
+        value: ${{ jobs.build.outputs.publish_matrix }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Minecraft targets
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.version.outputs.artifact_name }}
+      publish_matrix: ${{ steps.collect.outputs.publish_matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Resolve build version
+        id: version
+        shell: bash
+        run: |
+          base_version="$(awk -F= '$1 == "mod.version" { print substr($0, index($0, "=") + 1); exit }' gradle.properties)"
+          test -n "$base_version" || { echo 'Missing mod.version in gradle.properties'; exit 1; }
+
+          if [[ "${{ inputs.release }}" == "true" ]]; then
+            if [[ "$base_version" == *SNAPSHOT* ]]; then
+              echo "Release version must not contain SNAPSHOT: $base_version"
+              exit 1
+            fi
+            effective_version="$base_version"
+            build_number=""
+          else
+            build_number="build.${GITHUB_RUN_NUMBER}"
+            effective_version="${base_version}-${build_number}"
+          fi
+
+          echo "BASE_VERSION=$base_version" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_VERSION=$effective_version" >> "$GITHUB_ENV"
+          echo "artifact_name=flashbackplus-${effective_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build all targets
+        run: |
+          if [[ -n "$BUILD_NUMBER" ]]; then
+            ./gradlew build -Pbuild.number="${BUILD_NUMBER#build.}" --parallel --build-cache --no-daemon --stacktrace
+          else
+            ./gradlew build --parallel --build-cache --no-daemon --stacktrace
+          fi
+
+      - name: Collect jars and generate publishing matrix
+        id: collect
+        shell: bash
+        env:
+          RELEASE_VERSION_TYPE: ${{ inputs.version_type }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          effective_version = os.environ["EFFECTIVE_VERSION"]
+          artifacts = Path("artifacts")
+          artifacts.mkdir(exist_ok=True)
+          matrix = []
+
+          def read_properties(path):
+              values = {}
+              for line in path.read_text(encoding="utf-8").splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#") or "=" not in line:
+                      continue
+                  key, value = line.split("=", 1)
+                  values[key.strip()] = value.strip()
+              return values
+
+          for properties_path in sorted(Path("versions").glob("*/gradle.properties")):
+              minecraft_version = properties_path.parent.name
+              properties = read_properties(properties_path)
+              game_versions = properties.get("mod.mc_releases", minecraft_version)
+              source_dir = Path("build/libs") / effective_version / minecraft_version
+              jars = sorted(
+                  path for path in source_dir.glob("*.jar")
+                  if not any(token in path.name for token in ("-sources.jar", "-dev.jar", "-javadoc.jar"))
+              )
+              if not jars:
+                  raise SystemExit(f"No distributable JAR found in {source_dir}")
+
+              target_dir = artifacts / minecraft_version
+              target_dir.mkdir(parents=True, exist_ok=True)
+              for jar in jars:
+                  shutil.copy2(jar, target_dir / jar.name)
+
+              matrix.append({
+                  "path": minecraft_version,
+                  "minecraft_version": minecraft_version,
+                  "game_versions": game_versions,
+                  "loader": "fabric",
+                  "mod_version": effective_version,
+                  "platform_version": f"{effective_version}-mc{minecraft_version}-fabric",
+                  "version_type": os.environ["RELEASE_VERSION_TYPE"],
+              })
+
+          if not matrix:
+              raise SystemExit("No Minecraft version artifacts were found")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("publish_matrix=" + json.dumps({"include": matrix}, separators=(",", ":")) + "\n")
+          PY
+
+      - name: Upload push build artifact
+        if: ${{ !inputs.release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}
+          path: artifacts/**/*.jar
+          if-no-files-found: error
+
+      - name: Upload release staging artifact
+        if: ${{ inputs.release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}
+          path: artifacts/
+          if-no-files-found: error
