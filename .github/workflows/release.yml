@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -45,10 +45,26 @@ jobs:
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           curseforge-id: REPLACE_WITH_CURSEFORGE_PROJECT_ID
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
-          files-primary: artifacts/${{ matrix.path }}/*.jar
+          files-primary: artifacts/${{ matrix.jar }}
           name: ${{ github.event.release.name || github.ref_name }} for Minecraft ${{ matrix.minecraft_version }}
           version: ${{ matrix.platform_version }}
           version-type: ${{ matrix.version_type }}
           loaders: ${{ matrix.loader }}
           game-versions: ${{ matrix.game_versions }}
           changelog: ${{ github.event.release.body }}
+
+  upload-github-release:
+    name: Upload JARs to GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: artifacts
+
+      - name: Upload JARs to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" artifacts/*.jar --clobber

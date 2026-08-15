@@ -74,7 +74,7 @@ jobs:
           echo "BASE_VERSION=$base_version" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
           echo "EFFECTIVE_VERSION=$effective_version" >> "$GITHUB_ENV"
-          echo "artifact_name=flashbackplus-${effective_version}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=mod-jars" >> "$GITHUB_OUTPUT"
 
       - name: Build all targets
         run: |
@@ -93,8 +93,9 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-          import shutil
-          from pathlib import Path
+import shutil
+import re
+from pathlib import Path
 
           effective_version = os.environ["EFFECTIVE_VERSION"]
           artifacts = Path("artifacts")
@@ -114,7 +115,12 @@ jobs:
           for properties_path in sorted(Path("versions").glob("*/gradle.properties")):
               minecraft_version = properties_path.parent.name
               properties = read_properties(properties_path)
-              game_versions = properties.get("mod.mc_releases", minecraft_version)
+              publish_versions = properties.get("mod.mc_publish", "").strip()
+              if not publish_versions:
+                  raise SystemExit(f"Missing mod.mc_publish in {properties_path}")
+              game_versions = ",".join(
+                  version for version in re.split(r"[,\s]+", publish_versions) if version
+              )
               source_dir = Path("build/libs") / effective_version / minecraft_version
               jars = sorted(
                   path for path in source_dir.glob("*.jar")
@@ -123,13 +129,12 @@ jobs:
               if not jars:
                   raise SystemExit(f"No distributable JAR found in {source_dir}")
 
-              target_dir = artifacts / minecraft_version
-              target_dir.mkdir(parents=True, exist_ok=True)
               for jar in jars:
-                  shutil.copy2(jar, target_dir / jar.name)
+                  shutil.copy2(jar, artifacts / jar.name)
 
               matrix.append({
-                  "path": minecraft_version,
+                  "path": jar.name,
+                  "jar": jar.name,
                   "minecraft_version": minecraft_version,
                   "game_versions": game_versions,
                   "loader": "fabric",
@@ -150,7 +155,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
-          path: artifacts/**/*.jar
+          path: artifacts/*.jar
           if-no-files-found: error
 
       - name: Upload release staging artifact
@@ -158,5 +163,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
-          path: artifacts/
+          path: artifacts/*.jar
           if-no-files-found: error
