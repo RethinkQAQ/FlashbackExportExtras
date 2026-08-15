@@ -26,7 +26,6 @@ package com.rethinkqaq.flashbackexportextras.exporting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
-import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -127,29 +126,18 @@ public final class SceneLinearHdrShader implements AutoCloseable {
 
     public int render(int sourceTextureId) {
         RenderSystem.assertOnRenderThread();
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, sourceTextureId);
-        int sourceWidth = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_WIDTH);
-        int sourceHeight = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_HEIGHT);
-        if (sourceWidth <= 0 || sourceHeight <= 0) {
-            throw new IllegalStateException("Invalid scene-linear HDR source texture size");
+        try (LegacyOpenGlRenderState state = LegacyOpenGlRenderState.capture()) {
+            state.bindTextureForInspection(sourceTextureId);
+            int sourceWidth = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_WIDTH);
+            int sourceHeight = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_HEIGHT);
+            if (sourceWidth <= 0 || sourceHeight <= 0) {
+                throw new IllegalStateException("Invalid scene-linear HDR source texture size");
+            }
+            ensureResources(sourceWidth, sourceHeight);
+            state.beginFullscreenPass(fbo, width, height, program, sourceTextureId, vao);
+            GL20.glUniform1i(GL20.glGetUniformLocation(program, "InSampler"), 0);
+            GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
         }
-        ensureResources(sourceWidth, sourceHeight);
-
-        int[] viewport = new int[4];
-        GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
-        int oldFbo = GL30.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
-        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, fbo);
-        GL11.glViewport(0, 0, width, height);
-        GL20.glUseProgram(program);
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, sourceTextureId);
-        GL20.glUniform1i(GL20.glGetUniformLocation(program, "InSampler"), 0);
-        GL30.glBindVertexArray(vao);
-        GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
-        GL30.glBindVertexArray(0);
-        GL20.glUseProgram(0);
-        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, oldFbo);
-        GL11.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
         return texture;
     }
 

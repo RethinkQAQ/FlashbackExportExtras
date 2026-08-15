@@ -25,7 +25,6 @@ package com.rethinkqaq.flashbackexportextras.exporting;
 
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
-import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -106,22 +105,19 @@ public class HdrColorTransformShader implements AutoCloseable {
 
     public int render(int srcTextureId, float peakBrightness) {
         RenderSystem.assertOnRenderThread();
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, srcTextureId);
-        int w = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_WIDTH);
-        int h = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_HEIGHT);
-        if (w <= 0 || h <= 0) throw new IllegalStateException("Invalid HDR source texture size");
-        ensureResources(w, h);
-        int[] viewport = new int[4]; GL11.glGetIntegerv(GL11.GL_VIEWPORT, viewport);
-        int oldFbo = GL30.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
-        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, fbo); GL11.glViewport(0, 0, width, height);
-        GL20.glUseProgram(program); GL13.glActiveTexture(GL13.GL_TEXTURE0); GL11.glBindTexture(GL11.GL_TEXTURE_2D, srcTextureId);
-        GL20.glUniform1i(GL20.glGetUniformLocation(program, "InSampler"), 0);
-        GL20.glUniform1f(GL20.glGetUniformLocation(program, "UiBrightness"), peakBrightness);
-        GL20.glUniform1i(GL20.glGetUniformLocation(program, "Primaries"), 6);
-        GL20.glUniform1i(GL20.glGetUniformLocation(program, "TransferFunction"), 11);
-        GL30.glBindVertexArray(vao); GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4); GL30.glBindVertexArray(0);
-        GL20.glUseProgram(0); GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, oldFbo);
-        GL11.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        try (LegacyOpenGlRenderState state = LegacyOpenGlRenderState.capture()) {
+            state.bindTextureForInspection(srcTextureId);
+            int w = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_WIDTH);
+            int h = GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D, 0, GL11.GL_TEXTURE_HEIGHT);
+            if (w <= 0 || h <= 0) throw new IllegalStateException("Invalid HDR source texture size");
+            ensureResources(w, h);
+            state.beginFullscreenPass(fbo, width, height, program, srcTextureId, vao);
+            GL20.glUniform1i(GL20.glGetUniformLocation(program, "InSampler"), 0);
+            GL20.glUniform1f(GL20.glGetUniformLocation(program, "UiBrightness"), peakBrightness);
+            GL20.glUniform1i(GL20.glGetUniformLocation(program, "Primaries"), 6);
+            GL20.glUniform1i(GL20.glGetUniformLocation(program, "TransferFunction"), 11);
+            GL11.glDrawArrays(GL11.GL_TRIANGLE_FAN, 0, 4);
+        }
         return texture;
     }
 

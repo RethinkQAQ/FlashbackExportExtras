@@ -12,6 +12,8 @@ val buildNumber = providers.gradleProperty("build.number").orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
 val effectiveModVersion = buildNumber?.let { "$baseModVersion-build.$it" } ?: baseModVersion
+val exportBuildSuffix = buildNumber?.let { "-build.$it" } ?: ""
+val exportJarName = "${property("mod.id")}-v$baseModVersion-mc${sc.current.version}$exportBuildSuffix.jar"
 
 // DO NOT set group directly; each Stonecutter version supplies it from its gradle.properties.
 version = "$effectiveModVersion+${sc.current.version}"
@@ -62,6 +64,13 @@ dependencies {
     runtimeOnly("io.github.douira:glsl-transformer:3.0.0-pre3")
     runtimeOnly("org.antlr:antlr4-runtime:4.13.1")
     runtimeOnly("org.antlr:antlr4:4.13.1")
+
+    if (sc.current.parsed < "26.1") {
+        // Flashback 0.39.x embeds Apache HttpClient, but Loom does not expose
+        // that nested library while running the exploded development mod.
+        // It is needed by Flashback's export-complete window, not by this mod.
+        runtimeOnly("org.apache.httpcomponents:httpclient:4.5.14")
+    }
 
     modLocalRuntime("com.moulberry:mixinconstraints:1.0.8")
     if (sc.current.parsed < "26.1") {
@@ -166,8 +175,8 @@ tasks {
     register<Copy>("buildAndCollect") {
         group = "build"
         description = "Builds mod jars and copies results to build/libs/{mod version}/{Minecraft version}/"
-        from(loomx.modJar.flatMap { it.archiveFile }, loomx.modSourcesJar.flatMap { it.archiveFile })
-        rename("-dev\\.jar$", ".jar")
+        from(loomx.modJar.flatMap { it.archiveFile })
+        rename(".*\\.jar", exportJarName)
         into(rootProject.layout.buildDirectory.dir("libs/$effectiveModVersion/${sc.current.version}"))
     }
 
