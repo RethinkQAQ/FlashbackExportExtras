@@ -1,14 +1,19 @@
-# Flashback Export Extras
+<div align="center">
+  <img src="src/main/resources/assets/flashbackplus/icon.png" width="128" alt="Flashback Export Extras icon">
+  <h1>Flashback Export Extras</h1>
+  <p>
+    Flashback Export Extras is a Fabric add-on that extends Flashback's Minecraft replay export features.
+  </p>
+</div>
 
-Flashback Export Extras is a Fabric add-on that extends Flashback with advanced export features for Minecraft replay footage.
+English | [中文](README_zh.md)
 
 ## Features
 
-- Depth map export.
-- Multi-layer OpenEXR export with color and `Depth.Z` channels.
-- Optional scene-linear HDR color for OpenEXR post-processing workflows.
-- HDR10 video export when the HDR Mod integration is available.
-- Camera path export in GLB format.
-- Support for Iris shaderpacks through optional compatibility code.
+- Export depth maps.
+- Export multi-layer OpenEXR files containing color and `Depth.Z` channels.
+- Export scene-linear HDR color for OpenEXR post-processing.
+- Export HDR10 video when HDR Mod is installed.
+- Export camera paths in GLB format.
 
-OpenEXR output is intended for compositing and post-processing in tools such as Blender and After Effects. Color, depth, and camera path data are exported with matching frame numbers.
+OpenEXR output is mainly intended for compositing and post-processing in Blender, After Effects, and other software. Color, depth, and camera path data are exported with matching frame numbers for per-frame alignment.
