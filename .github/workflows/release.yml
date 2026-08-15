@@ -15,43 +15,42 @@ jobs:
       changelog: ${{ github.event.release.body }}
       version_type: ${{ github.event.release.prerelease && 'beta' || 'release' }}
 
-  publish-platforms:
-    name: Publish ${{ matrix.minecraft_version }}
-    needs: build
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.build.outputs.publish_matrix) }}
-    steps:
-      - name: Download release artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build.outputs.artifact_name }}
-          path: artifacts
-
-      - name: Check publishing configuration
-        env:
-          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
-          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
-        run: |
-          test -n "$MODRINTH_TOKEN" || { echo 'Missing MODRINTH_TOKEN'; exit 1; }
-          test -n "$CURSEFORGE_TOKEN" || { echo 'Missing CURSEFORGE_TOKEN'; exit 1; }
-
-      - name: Publish to Modrinth and CurseForge
-        uses: Kir-Antipov/mc-publish@v3.3
-        with:
-          # Replace these two constants with this mod's real platform IDs.
-          modrinth-id: REPLACE_WITH_MODRINTH_PROJECT_ID
-          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
-          curseforge-id: REPLACE_WITH_CURSEFORGE_PROJECT_ID
-          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
-          files-primary: artifacts/${{ matrix.jar }}
-          name: ${{ github.event.release.name || github.ref_name }} for Minecraft ${{ matrix.minecraft_version }}
-          version: ${{ matrix.platform_version }}
-          version-type: ${{ matrix.version_type }}
-          loaders: ${{ matrix.loader }}
-          game-versions: ${{ matrix.game_versions }}
-          changelog: ${{ github.event.release.body }}
+  # publish-platforms:
+  #   name: Publish ${{ matrix.minecraft_version }}
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     fail-fast: false
+  #     matrix: ${{ fromJSON(needs.build.outputs.publish_matrix) }}
+  #   steps:
+  #     - name: Download release artifact
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: ${{ needs.build.outputs.artifact_name }}
+  #         path: artifacts
+  #
+  #     - name: Check publishing configuration
+  #       env:
+  #         MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+  #         CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+  #       run: |
+  #         test -n "$MODRINTH_TOKEN" || { echo 'Missing MODRINTH_TOKEN'; exit 1; }
+  #         test -n "$CURSEFORGE_TOKEN" || { echo 'Missing CURSEFORGE_TOKEN'; exit 1; }
+  #
+  #     - name: Publish to Modrinth and CurseForge
+  #       uses: Kir-Antipov/mc-publish@v3.3
+  #       with:
+  #         modrinth-id: REPLACE_WITH_MODRINTH_PROJECT_ID
+  #         modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+  #         curseforge-id: REPLACE_WITH_CURSEFORGE_PROJECT_ID
+  #         curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+  #         files-primary: artifacts/${{ matrix.jar }}
+  #         name: ${{ github.event.release.name || github.ref_name }} for Minecraft ${{ matrix.minecraft_version }}
+  #         version: ${{ matrix.platform_version }}
+  #         version-type: ${{ matrix.version_type }}
+  #         loaders: ${{ matrix.loader }}
+  #         game-versions: ${{ matrix.game_versions }}
+  #         changelog: ${{ github.event.release.body }}
 
   upload-github-release:
     name: Upload JARs to GitHub Release
