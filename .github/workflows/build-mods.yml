@@ -93,9 +93,9 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-import shutil
-import re
-from pathlib import Path
+          import shutil
+          import re
+          from pathlib import Path
 
           effective_version = os.environ["EFFECTIVE_VERSION"]
           artifacts = Path("artifacts")
