@@ -101,12 +101,20 @@ dependencies {
         org.gradle.internal.os.OperatingSystem.current().isLinux -> "natives-linux"
         else -> "natives-windows"
     }
+    val lwjglNativeClassifiers = listOf(
+        "natives-windows",
+        "natives-linux",
+        "natives-macos",
+        "natives-macos-arm64"
+    )
 
     implementation(platform("org.lwjgl:lwjgl-bom:$lwjglVersion"))
     implementation("org.lwjgl:lwjgl-tinyexr")
     runtimeOnly("org.lwjgl:lwjgl-tinyexr::$lwjglNatives")
     include("org.lwjgl:lwjgl-tinyexr:$lwjglVersion")
-    include(dependencies.create("org.lwjgl:lwjgl-tinyexr:$lwjglVersion:$lwjglNatives"))
+    lwjglNativeClassifiers.forEach { classifier ->
+        include(dependencies.create("org.lwjgl:lwjgl-tinyexr:$lwjglVersion:$classifier"))
+    }
 }
 
 loom {
