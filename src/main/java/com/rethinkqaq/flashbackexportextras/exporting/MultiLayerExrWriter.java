@@ -22,7 +22,7 @@
 package com.rethinkqaq.flashbackexportextras.exporting;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.util.tinyexr.EXRChannelInfo;
@@ -247,7 +247,7 @@ public class MultiLayerExrWriter implements AutoCloseable {
                 if (value > 1.0f) aboveOne++;
             }
         }
-        Flashbackplus.LOGGER.info(
+        FlashbackExportExtras.LOGGER.info(
                 "EXR scene-linear HDR #{}: finite={}/{}, min={}, max={}, samplesAboveOne={}",
                 frame, finite, count, min, max, aboveOne);
     }
@@ -323,7 +323,7 @@ public class MultiLayerExrWriter implements AutoCloseable {
 
         int center = Math.max(0, Math.min(count - 1, (height / 2) * width + width / 2));
         int quarter = Math.max(0, Math.min(count - 1, (height / 4) * width + width / 4));
-        com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.info(
+        com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.info(
                 "EXR depth output #{}: linearize={}, near={}, far={}, finite={}/{}, min={}, max={}, q1={}, center={}, q3={}",
                 frame, linearizeDepth, zNear, zFar, finite, count, min, max,
                 zBuf.get(quarter), zBuf.get(center), zBuf.get(Math.max(0, count - 1 - quarter)));

@@ -36,7 +36,7 @@ import org.spongepowered.asm.mixin.Mixin;
 public interface DirectStateAccessInvoker {
     /*? if >=26.1 {*/
     /*@Invoker("bindFrameBufferTextures")
-    void flashbackplus$bindFrameBufferTextures(int framebuffer, int colorTexture,
+    void flashbackexportextras$bindFrameBufferTextures(int framebuffer, int colorTexture,
                                                 int depthTexture, int mipLevel, int bindTarget);
     *//*?}*/
 }

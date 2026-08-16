@@ -64,7 +64,7 @@ public final class LegacyOpenGlExportBackend implements GpuExportBackend {
         } catch (RuntimeException e) {
             hdrReadbackFailed = true;
             com.rethinkqaq.flashbackexportextras.exporting.HdrVideoCaptureState.fail(e);
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "OpenGL HDR10 capture failed for frame " + frameId, e);
         }
         /*?}*/
@@ -82,7 +82,7 @@ public final class LegacyOpenGlExportBackend implements GpuExportBackend {
         } catch (RuntimeException e) {
             sceneLinearReadbackFailed = true;
             com.rethinkqaq.flashbackexportextras.exporting.SceneLinearHdrCaptureState.fail(e);
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "OpenGL scene-linear HDR capture failed for frame " + frameId, e);
         }
         /*?}*/

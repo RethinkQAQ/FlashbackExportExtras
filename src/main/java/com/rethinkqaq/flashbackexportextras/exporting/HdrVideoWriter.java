@@ -25,7 +25,7 @@ package com.rethinkqaq.flashbackexportextras.exporting;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.exporting.VideoWriter;
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import org.lwjgl.system.MemoryUtil;
 
 import java.io.IOException;
@@ -67,9 +67,9 @@ public class HdrVideoWriter implements VideoWriter {
         this.frameSize = width * height * 8;
         this.frameBytes = new byte[frameSize];
         Files.createDirectories(outputPath.getParent());
-        Flashbackplus.LOGGER.info("HDR encoder requested bitrate: {} bps ({} Mbps)",
+        FlashbackExportExtras.LOGGER.info("HDR encoder requested bitrate: {} bps ({} Mbps)",
                 bitrate, bitrate / 1_000_000.0);
-        Flashbackplus.LOGGER.info("HDR video export: {}x{} @ {}fps → {}",
+        FlashbackExportExtras.LOGGER.info("HDR video export: {}x{} @ {}fps → {}",
                 width, height, framerate, outputPath);
     }
 
@@ -131,7 +131,7 @@ public class HdrVideoWriter implements VideoWriter {
             frameCount++;
         } catch (IOException e) {
             pipeFailed = true;
-            Flashbackplus.LOGGER.error("HDR export: pipe write failed at frame {}", frameCount, e);
+            FlashbackExportExtras.LOGGER.error("HDR export: pipe write failed at frame {}", frameCount, e);
             if (bufferOwned) MemoryUtil.memFree(hdrData);
             if (ffmpegProcess != null) ffmpegProcess.destroy();
         }
@@ -156,7 +156,7 @@ public class HdrVideoWriter implements VideoWriter {
         finished = true;
         if (pipeFailed) {
             if (ffmpegProcess != null) ffmpegProcess.destroy();
-            Flashbackplus.LOGGER.warn("HDR export aborted after FFmpeg pipe failure at frame {}", frameCount);
+            FlashbackExportExtras.LOGGER.warn("HDR export aborted after FFmpeg pipe failure at frame {}", frameCount);
             return;
         }
         if (ffmpegStdin != null) {
@@ -166,14 +166,14 @@ public class HdrVideoWriter implements VideoWriter {
             try {
                 int exitCode = ffmpegProcess.waitFor();
                 if (exitCode != 0) {
-                    Flashbackplus.LOGGER.warn("FFmpeg exited with code {}", exitCode);
+                    FlashbackExportExtras.LOGGER.warn("FFmpeg exited with code {}", exitCode);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 ffmpegProcess.destroy();
             }
         }
-        Flashbackplus.LOGGER.info("HDR export: {} frames → {}", frameCount, outputPath);
+        FlashbackExportExtras.LOGGER.info("HDR export: {} frames → {}", frameCount, outputPath);
     }
 
     @Override

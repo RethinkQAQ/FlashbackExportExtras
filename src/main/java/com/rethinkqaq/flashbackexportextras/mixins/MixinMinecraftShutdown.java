@@ -22,7 +22,7 @@
 package com.rethinkqaq.flashbackexportextras.mixins;
 
 import net.minecraft.client.Minecraft;
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.exporting.DepthCaptureState;
 import com.rethinkqaq.flashbackexportextras.exporting.SceneLinearHdrCaptureState;
 /*? if hdr {*/
@@ -38,11 +38,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value = Minecraft.class, remap = false)
 public class MixinMinecraftShutdown {
     @Inject(method = "close", at = @At("HEAD"), remap = false)
-    private void flashbackplus$shutdownFlashbackDialogExecutor(CallbackInfo ci) {
+    private void flashbackexportextras$shutdownFlashbackDialogExecutor(CallbackInfo ci) {
         try {
-            AsyncFileDialogsAccessor.flashbackplus$getDialogThread().shutdownNow();
+            AsyncFileDialogsAccessor.flashbackexportextras$getDialogThread().shutdownNow();
         } catch (Throwable t) {
-            Flashbackplus.LOGGER.warn("Failed to stop Flashback file-dialog executor during shutdown", t);
+            FlashbackExportExtras.LOGGER.warn("Failed to stop Flashback file-dialog executor during shutdown", t);
         }
         try {
             DepthCaptureState.reset();
@@ -56,7 +56,7 @@ public class MixinMinecraftShutdown {
             // accessed from an arbitrary worker thread.
             GpuExportBackendFactory.releasePendingOnRenderThread();
         } catch (Throwable t) {
-            Flashbackplus.LOGGER.warn("Failed to clean Flashback Export Extras GPU resources during shutdown", t);
+            FlashbackExportExtras.LOGGER.warn("Failed to clean Flashback Export Extras GPU resources during shutdown", t);
         }
     }
 }

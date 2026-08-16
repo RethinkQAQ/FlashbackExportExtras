@@ -41,38 +41,38 @@ import org.spongepowered.asm.mixin.Mixin;
 /*?}*/
 public class MixinGlCommandEncoderDepthCopy {
     /*? if >=26.1 {*/
-    /*@Unique private GpuTexture flashbackplus$copyTexture;
+    /*@Unique private GpuTexture flashbackexportextras$copyTexture;
 
     @Inject(method = "copyTextureToBuffer(Lcom/mojang/blaze3d/textures/GpuTexture;Lcom/mojang/blaze3d/buffers/GpuBuffer;JLjava/lang/Runnable;IIIII)V",
             at = @At("HEAD"), remap = false)
-    private void flashbackplus$rememberCopyTexture(GpuTexture texture, GpuBuffer buffer, long offset,
+    private void flashbackexportextras$rememberCopyTexture(GpuTexture texture, GpuBuffer buffer, long offset,
                                                     Runnable callback, int x, int y, int width, int height,
                                                     int mipLevel, CallbackInfo ci) {
-        flashbackplus$copyTexture = texture;
+        flashbackexportextras$copyTexture = texture;
     }
 
     @Redirect(method = "copyTextureToBuffer(Lcom/mojang/blaze3d/textures/GpuTexture;Lcom/mojang/blaze3d/buffers/GpuBuffer;JLjava/lang/Runnable;IIIII)V",
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/opengl/DirectStateAccess;bindFrameBufferTextures(IIIII)V"),
             remap = false)
-    private void flashbackplus$bindDepthAttachment(DirectStateAccess access, int framebuffer, int colorTexture,
+    private void flashbackexportextras$bindDepthAttachment(DirectStateAccess access, int framebuffer, int colorTexture,
                                                     int depthTexture, int mipLevel, int bindTarget) {
-        GpuTexture texture = flashbackplus$copyTexture;
+        GpuTexture texture = flashbackexportextras$copyTexture;
         if (texture != null && texture.getFormat().hasDepthAspect() && depthTexture == 0) {
-            ((DirectStateAccessInvoker) access).flashbackplus$bindFrameBufferTextures(
+            ((DirectStateAccessInvoker) access).flashbackexportextras$bindFrameBufferTextures(
                     framebuffer, 0, colorTexture, mipLevel, bindTarget);
         } else {
-            ((DirectStateAccessInvoker) access).flashbackplus$bindFrameBufferTextures(
+            ((DirectStateAccessInvoker) access).flashbackexportextras$bindFrameBufferTextures(
                     framebuffer, colorTexture, depthTexture, mipLevel, bindTarget);
         }
     }
 
     @Inject(method = "copyTextureToBuffer(Lcom/mojang/blaze3d/textures/GpuTexture;Lcom/mojang/blaze3d/buffers/GpuBuffer;JLjava/lang/Runnable;IIIII)V",
             at = @At("RETURN"), remap = false)
-    private void flashbackplus$forgetCopyTexture(GpuTexture texture, GpuBuffer buffer, long offset,
+    private void flashbackexportextras$forgetCopyTexture(GpuTexture texture, GpuBuffer buffer, long offset,
                                                    Runnable callback, int x, int y, int width, int height,
                                                    int mipLevel, CallbackInfo ci) {
-        flashbackplus$copyTexture = null;
+        flashbackexportextras$copyTexture = null;
     }
     *//*?}*/
 }

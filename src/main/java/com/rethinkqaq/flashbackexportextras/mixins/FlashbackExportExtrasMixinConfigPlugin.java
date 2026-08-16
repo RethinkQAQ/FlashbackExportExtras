@@ -28,7 +28,7 @@ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
 import java.util.List;
 import java.util.Set;
 
-public final class FlashbackPlusMixinConfigPlugin implements IMixinConfigPlugin {
+public final class FlashbackExportExtrasMixinConfigPlugin implements IMixinConfigPlugin {
     private static final String DUMMY_TARGET = "com.rethinkqaq.flashbackexportextras.utils.Dummy";
     private boolean hdrLoaded;
     private boolean irisPipelineMixinEnabled;

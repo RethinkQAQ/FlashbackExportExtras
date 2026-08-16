@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/main/resources/assets/flashbackplus/icon.png" width="128" alt="Totem Doll icon">
+  <img src="src/main/resources/assets/flashbackexportextras/icon.png" width="128" alt="Totem Doll icon">
   <h1>Flashback Export Extras</h1>
   <p>
     Flashback Export Extras 是一个 Fabric 模组扩展，用于增强 Flashback 的 Minecraft 回放导出功能。

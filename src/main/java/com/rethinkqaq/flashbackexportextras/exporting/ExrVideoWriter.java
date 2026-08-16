@@ -23,8 +23,8 @@ package com.rethinkqaq.flashbackexportextras.exporting;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.exporting.VideoWriter;
-import com.rethinkqaq.flashbackexportextras.FlashbackPlusConfig;
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 
 import java.io.IOException;
 import java.nio.FloatBuffer;
@@ -66,7 +66,7 @@ public class ExrVideoWriter implements VideoWriter {
         try {
             for (int i = 0; i < WRITER_COUNT; i++) {
                 exrWriters[i] = new MultiLayerExrWriter(outputDir, width, height,
-                        FlashbackPlusConfig.INSTANCE.depthLinearizeWorldSpace, sceneLinearHdr);
+                        FlashbackExportExtrasConfig.INSTANCE.depthLinearizeWorldSpace, sceneLinearHdr);
             }
         } catch (IOException | RuntimeException e) {
             for (MultiLayerExrWriter writer : exrWriters) {
@@ -77,12 +77,12 @@ public class ExrVideoWriter implements VideoWriter {
         for (int i = 0; i < WRITER_COUNT; i++) {
             final int workerIndex = i;
             Thread writerThread = new Thread(() -> writeLoop(workerIndex),
-                    "flashbackplus-exr-writer-" + i);
+                    "flashbackexportextras-exr-writer-" + i);
             writerThread.setDaemon(true);
             writerThread.start();
             writerThreads[i] = writerThread;
         }
-        Flashbackplus.LOGGER.info("EXR writers started: output={}, workers={}, queueCapacity={}, sceneLinearHdr={}",
+        FlashbackExportExtras.LOGGER.info("EXR writers started: output={}, workers={}, queueCapacity={}, sceneLinearHdr={}",
                 outputDir, WRITER_COUNT, QUEUE_CAPACITY, sceneLinearHdr);
     }
 
@@ -177,7 +177,7 @@ public class ExrVideoWriter implements VideoWriter {
         if (finished) return;
         finished = true;
         accepting = false;
-        Flashbackplus.LOGGER.info("EXR finish: draining pending pairs");
+        FlashbackExportExtras.LOGGER.info("EXR finish: draining pending pairs");
         try {
             drainPairs();
             if (!pendingColors.isEmpty()) {
@@ -193,7 +193,7 @@ public class ExrVideoWriter implements VideoWriter {
                                 + ": depth=" + remainingDepth + ", hdr=" + remainingHdr));
             }
             discardPendingColors();
-            Flashbackplus.LOGGER.info("EXR finish: queue={}, sending {} stop signals",
+            FlashbackExportExtras.LOGGER.info("EXR finish: queue={}, sending {} stop signals",
                     queue.size(), WRITER_COUNT);
             // Every worker has its own blocking take(); one sentinel is not
             // enough to release all workers during finalization.
@@ -202,11 +202,11 @@ public class ExrVideoWriter implements VideoWriter {
                     throw new IllegalStateException("Timed out queueing EXR writer stop signal");
                 }
             }
-            Flashbackplus.LOGGER.info("EXR finish: waiting for {} writer threads", WRITER_COUNT);
+            FlashbackExportExtras.LOGGER.info("EXR finish: waiting for {} writer threads", WRITER_COUNT);
             if (!writerStopped.await(120, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("Timed out waiting for EXR writer threads");
             }
-            Flashbackplus.LOGGER.info("EXR finish: writer threads stopped");
+            FlashbackExportExtras.LOGGER.info("EXR finish: writer threads stopped");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             writerFailure.compareAndSet(null, e);
@@ -223,19 +223,19 @@ public class ExrVideoWriter implements VideoWriter {
             while ((packet = queue.poll()) != null) {
                 if (packet != STOP) packet.close();
             }
-            Flashbackplus.LOGGER.info("EXR finish: closing native writers");
+            FlashbackExportExtras.LOGGER.info("EXR finish: closing native writers");
             for (MultiLayerExrWriter writer : exrWriters) {
                 if (writer != null) writer.close();
             }
-            Flashbackplus.LOGGER.info("EXR finish: native writers closed");
+            FlashbackExportExtras.LOGGER.info("EXR finish: native writers closed");
         }
 
         Throwable failure = writerFailure.get();
         if (failure != null) {
-            Flashbackplus.LOGGER.error("EXR writer failed", failure);
+            FlashbackExportExtras.LOGGER.error("EXR writer failed", failure);
             throw new IllegalStateException("OpenEXR export failed", failure);
         }
-        Flashbackplus.LOGGER.info("EXR writer finished: encoded={}, pendingColors={}, pendingDepth={}",
+        FlashbackExportExtras.LOGGER.info("EXR writer finished: encoded={}, pendingColors={}, pendingDepth={}",
                 encodedFrameCount, pendingColors.size(), DepthCaptureState.queuedFrameCount());
     }
 

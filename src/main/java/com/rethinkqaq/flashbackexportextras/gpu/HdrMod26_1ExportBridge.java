@@ -29,7 +29,7 @@ import com.mojang.blaze3d.buffers.GpuFence;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.exporting.HdrVideoCaptureState;
 import com.rethinkqaq.flashbackexportextras.exporting.SceneLinearHdrCaptureState;
 import org.lwjgl.system.MemoryUtil;
@@ -67,11 +67,11 @@ final class HdrMod26_1ExportBridge {
         if (hdr10Renderer == null) {
             hdr10Renderer = new ColorTransformRenderer(target, "Flashback Export Extras HDR10");
             ((HdrModColorTransformAccess) hdr10Renderer)
-                    .flashbackplus$configureOutput(GL_RGB16, GL_UNSIGNED_SHORT);
+                    .flashbackexportextras$configureOutput(GL_RGB16, GL_UNSIGNED_SHORT);
         } else if (hdr10Renderer.getSrcTarget() != target) {
             hdr10Renderer.setSrcTarget(target);
             ((HdrModColorTransformAccess) hdr10Renderer)
-                    .flashbackplus$configureOutput(GL_RGB16, GL_UNSIGNED_SHORT);
+                    .flashbackexportextras$configureOutput(GL_RGB16, GL_UNSIGNED_SHORT);
         }
         hdr10Renderer.updateColorTransformUniforms(peakBrightness, 0.0f,
                 Enums.Primaries.BT2020, Enums.TransferFunction.ST2084_PQ);
@@ -86,11 +86,11 @@ final class HdrMod26_1ExportBridge {
         if (sceneLinearRenderer == null) {
             sceneLinearRenderer = new ColorTransformRenderer(target, "Flashback Export Extras scene-linear HDR");
             ((HdrModColorTransformAccess) sceneLinearRenderer)
-                    .flashbackplus$configureOutput(GL_RGBA16F, GL_HALF_FLOAT);
+                    .flashbackexportextras$configureOutput(GL_RGBA16F, GL_HALF_FLOAT);
         } else if (sceneLinearRenderer.getSrcTarget() != target) {
             sceneLinearRenderer.setSrcTarget(target);
             ((HdrModColorTransformAccess) sceneLinearRenderer)
-                    .flashbackplus$configureOutput(GL_RGBA16F, GL_HALF_FLOAT);
+                    .flashbackexportextras$configureOutput(GL_RGBA16F, GL_HALF_FLOAT);
         }
         sceneLinearRenderer.updateColorTransformUniforms(1.0f, 0.0f,
                 Enums.Primaries.SRGB, Enums.TransferFunction.UNSPECIFIED);
@@ -248,7 +248,7 @@ final class HdrMod26_1ExportBridge {
                 result = null;
             } catch (RuntimeException e) {
                 failureConsumer.accept(e);
-                Flashbackplus.LOGGER.error("26.1 {} readback failed for frame {}", label, frameIds[index], e);
+                FlashbackExportExtras.LOGGER.error("26.1 {} readback failed for frame {}", label, frameIds[index], e);
                 throw e;
             } finally {
                 if (result != null) MemoryUtil.memFree(result);

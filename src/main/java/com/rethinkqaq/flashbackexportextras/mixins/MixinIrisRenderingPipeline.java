@@ -38,7 +38,7 @@ import org.spongepowered.asm.mixin.Mixin;
 public final class MixinIrisRenderingPipeline {
     /*? if >=26.2 {*/
     /*@Inject(method = "beginLevelRendering", at = @At("HEAD"), remap = false)
-    private void flashbackplus$markShaderPackFrame(CallbackInfo ci) {
+    private void flashbackexportextras$markShaderPackFrame(CallbackInfo ci) {
         DepthCaptureState.markIrisShaderPackRendered();
     }
     *//*?}*/

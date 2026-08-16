@@ -13,11 +13,12 @@ val buildNumber = providers.gradleProperty("build.number").orNull
     ?.takeIf { it.isNotEmpty() }
 val effectiveModVersion = buildNumber?.let { "$baseModVersion-build.$it" } ?: baseModVersion
 val exportBuildSuffix = buildNumber?.let { "-build.$it" } ?: ""
-val exportJarName = "${property("mod.id")}-v$baseModVersion-mc${sc.current.version}$exportBuildSuffix.jar"
+val archiveName = providers.gradleProperty("mod.archive_name").get()
+val exportJarName = "${archiveName}-v$baseModVersion-mc${sc.current.version}$exportBuildSuffix.jar"
 
 // DO NOT set group directly; each Stonecutter version supplies it from its gradle.properties.
 version = "$effectiveModVersion+${sc.current.version}"
-base.archivesName = property("mod.id") as String
+base.archivesName = archiveName
 
 val requiredJava = if (sc.current.parsed >= "26.1") {
     JavaVersion.VERSION_25

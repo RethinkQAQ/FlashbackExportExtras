@@ -75,9 +75,9 @@ public final class SceneLinearHdrShader implements AutoCloseable {
         height = newHeight;
 
         int vertex = compile(GL20.GL_VERTEX_SHADER,
-                resource("/assets/flashbackplus/shaders/core/screenquad_flip.vsh"));
+                resource("/assets/flashbackexportextras/shaders/core/screenquad_flip.vsh"));
         int fragment = compile(GL20.GL_FRAGMENT_SHADER,
-                resource("/assets/flashbackplus/shaders/core/scene_linear_hdr.fsh"));
+                resource("/assets/flashbackexportextras/shaders/core/scene_linear_hdr.fsh"));
         program = GL20.glCreateProgram();
         GL20.glAttachShader(program, vertex);
         GL20.glAttachShader(program, fragment);

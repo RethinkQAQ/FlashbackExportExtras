@@ -31,7 +31,7 @@ import java.util.concurrent.ExecutorService;
 @Mixin(value = AsyncFileDialogs.class, remap = false)
 public interface AsyncFileDialogsAccessor {
     @Accessor("dialogThread")
-    static ExecutorService flashbackplus$getDialogThread() {
+    static ExecutorService flashbackexportextras$getDialogThread() {
         throw new AssertionError();
     }
 }

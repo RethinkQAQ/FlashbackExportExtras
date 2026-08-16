@@ -31,13 +31,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public class FlashbackPlusConfig {
+public class FlashbackExportExtrasConfig {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_PATH = FabricLoader.getInstance()
-            .getConfigDir().resolve("flashbackplus.json");
+            .getConfigDir().resolve("flashbackexportextras.json");
 
-    public static FlashbackPlusConfig INSTANCE = new FlashbackPlusConfig();
+    public static FlashbackExportExtrasConfig INSTANCE = new FlashbackExportExtrasConfig();
 
     /** Mutually exclusive export destination selected by the export UI. */
     public ExportMode exportMode = ExportMode.VIDEO;
@@ -79,8 +79,8 @@ public class FlashbackPlusConfig {
             try {
                 String json = Files.readString(CONFIG_PATH);
                 JsonObject object = JsonParser.parseString(json).getAsJsonObject();
-                INSTANCE = GSON.fromJson(object, FlashbackPlusConfig.class);
-                if (INSTANCE == null) INSTANCE = new FlashbackPlusConfig();
+                INSTANCE = GSON.fromJson(object, FlashbackExportExtrasConfig.class);
+                if (INSTANCE == null) INSTANCE = new FlashbackExportExtrasConfig();
                 // Migrate the two old, independently persisted mode flags.
                 // HDR10 keeps precedence to preserve the behaviour of old configs.
                 if (!object.has("exportMode")) {
@@ -91,8 +91,8 @@ public class FlashbackPlusConfig {
                     }
                 }
             } catch (IOException e) {
-                Flashbackplus.LOGGER.error("Failed to load config", e);
-                INSTANCE = new FlashbackPlusConfig();
+                FlashbackExportExtras.LOGGER.error("Failed to load config", e);
+                INSTANCE = new FlashbackExportExtrasConfig();
             }
         }
         save();
@@ -103,7 +103,7 @@ public class FlashbackPlusConfig {
             Files.createDirectories(CONFIG_PATH.getParent());
             Files.writeString(CONFIG_PATH, GSON.toJson(INSTANCE));
         } catch (IOException e) {
-            Flashbackplus.LOGGER.error("Failed to save config", e);
+            FlashbackExportExtras.LOGGER.error("Failed to save config", e);
         }
     }
 }

@@ -51,7 +51,7 @@ public abstract class MixinHdrModColorTransformRenderer
 
     @Unique
     @Override
-    public void flashbackplus$configureOutput(int textureFormat, int readPixelFormat) {
+    public void flashbackexportextras$configureOutput(int textureFormat, int readPixelFormat) {
         if (dstTextureFormat == textureFormat && dstReadPixelFormat == readPixelFormat) return;
         dstTextureFormat = textureFormat;
         dstReadPixelFormat = readPixelFormat;

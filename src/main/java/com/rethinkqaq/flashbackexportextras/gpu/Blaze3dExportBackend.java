@@ -125,7 +125,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         } catch (RuntimeException e) {
             depthReadbackFailed = true;
             closeDepthBuffers();
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "26.1 pre-clear depth snapshot failed", e);
         }
         ^//^?}^/
@@ -143,7 +143,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             if (depthFences[index] != null) {
                 collectDepth(index, 1_000_000_000L);
                 if (depthFences[index] != null) {
-                    com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.warn(
+                    com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
                             "Depth GPU readback buffer {} is still busy; skipping frame {}",
                             index, DepthCaptureState.captureFrameId());
                     return;
@@ -167,7 +167,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         } catch (RuntimeException e) {
             depthReadbackFailed = true;
             closeDepthBuffers();
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "Blaze3D direct depth readback failed; continuing without depth", e);
         }
         ^//^?} else {^/
@@ -183,7 +183,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
                 depthFrameIds[index] = DepthCaptureState.captureFrameId();
                 collectDepth(index, 1_000_000_000L);
                 if (depthFences[index] != null) {
-                    com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.warn(
+                    com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
                             "26.1 pre-clear depth readback did not complete for frame {}",
                             depthFrameIds[index]);
                 }
@@ -205,7 +205,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         } catch (RuntimeException e) {
             depthReadbackFailed = true;
             closeDepthBuffers();
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "Blaze3D depth readback unavailable; continuing without depth", e);
         }
         /^?}^/
@@ -257,7 +257,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             }
         } catch (RuntimeException e) {
             HdrVideoCaptureState.fail(e);
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "Blaze3D HDR capture failed for frame " + frameId, e);
         }
         ^//^?} else {^/
@@ -267,7 +267,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             hdrModBridge.captureHdr(target, width, height, peakBrightness, frameId);
         } catch (RuntimeException e) {
             HdrVideoCaptureState.fail(e);
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "26.1 HDR capture failed for frame " + frameId, e);
         }
         /^?}^/
@@ -307,7 +307,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         } catch (RuntimeException e) {
             sceneLinearReadbackFailed = true;
             SceneLinearHdrCaptureState.fail(e);
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "Blaze3D scene-linear HDR capture failed for frame " + frameId, e);
         }
         ^//^?} else {^/
@@ -317,7 +317,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             hdrModBridge.captureSceneLinear(target, width, height, frameId);
         } catch (RuntimeException e) {
             SceneLinearHdrCaptureState.fail(e);
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.error(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "26.1 scene-linear HDR capture failed for frame " + frameId, e);
         }
         /^?}^/
@@ -345,11 +345,11 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
                 // an overridable vanilla program. Keep our utility pipeline
                 // in this mod's namespace.
                 .withLocation(ResourceLocation.fromNamespaceAndPath(
-                        "flashbackplus", "hdr_color_transform_blaze"))
+                        "flashbackexportextras", "hdr_color_transform_blaze"))
                 .withVertexShader(ResourceLocation.fromNamespaceAndPath(
-                        "flashbackplus", "core/flashbackplus_hdr_color_transform_blaze"))
+                        "flashbackexportextras", "core/flashbackexportextras_hdr_color_transform_blaze"))
                 .withFragmentShader(ResourceLocation.fromNamespaceAndPath(
-                        "flashbackplus", "core/flashbackplus_hdr_color_transform_blaze"))
+                        "flashbackexportextras", "core/flashbackexportextras_hdr_color_transform_blaze"))
                 .withBindGroupLayout(BindGroupLayout.builder()
                         .withSampler("InSampler")
                         .withUniform("HdrParameters", UniformType.UNIFORM_BUFFER)
@@ -397,11 +397,11 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         }
         sceneLinearPipeline = RenderPipeline.builder()
                 .withLocation(ResourceLocation.fromNamespaceAndPath(
-                        "flashbackplus", "scene_linear_hdr_blaze"))
+                        "flashbackexportextras", "scene_linear_hdr_blaze"))
                 .withVertexShader(ResourceLocation.fromNamespaceAndPath(
-                        "flashbackplus", "core/flashbackplus_hdr_color_transform_blaze"))
+                        "flashbackexportextras", "core/flashbackexportextras_hdr_color_transform_blaze"))
                 .withFragmentShader(ResourceLocation.fromNamespaceAndPath(
-                        "flashbackplus", "core/flashbackplus_scene_linear_hdr_blaze"))
+                        "flashbackexportextras", "core/flashbackexportextras_scene_linear_hdr_blaze"))
                 .withBindGroupLayout(BindGroupLayout.builder()
                         .withSampler("InSampler")
                         .build())
@@ -482,7 +482,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     private boolean ensureDepthBuffers(int newWidth, int newHeight) {
         if (width == newWidth && height == newHeight && depthBuffers[0] != null) return true;
         if (!closeDepthBuffers()) {
-            com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.warn(
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
                     "Deferring depth-buffer resize until pending GPU copies complete");
             return false;
         }
@@ -639,7 +639,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         int center = Math.max(0, Math.min(count - 1, (height / 2) * width + width / 2));
         int quarter = Math.max(0, Math.min(count - 1, (height / 4) * width + width / 4));
         int thirdQuarter = Math.max(0, count - 1 - quarter);
-        com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.info(
+        com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.info(
                 "Blaze3D depth readback #{}: source={}, buffer={}, size={}x{}, "
                         + "raw[finite={}/{}, min={}, max={}, q1={}, center={}, q3={}], "
                         + "standard[finite={}/{}, min={}, max={}, q1={}, center={}, q3={}]",

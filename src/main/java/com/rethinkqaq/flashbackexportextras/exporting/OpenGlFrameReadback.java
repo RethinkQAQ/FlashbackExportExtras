@@ -161,7 +161,7 @@ final class OpenGlFrameReadback implements AutoCloseable {
                         fences[i], GL32.GL_SYNC_FLUSH_COMMANDS_BIT, WAIT_NANOS);
                 if (waitResult != GL32.GL_ALREADY_SIGNALED
                         && waitResult != GL32.GL_CONDITION_SATISFIED) {
-                    com.rethinkqaq.flashbackexportextras.Flashbackplus.LOGGER.warn(
+                    com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
                             "Closing {} resources before frame {} fence completed", label, frameIds[i]);
                 }
                 GL32.glDeleteSync(fences[i]);

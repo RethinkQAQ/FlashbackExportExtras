@@ -67,8 +67,8 @@ public class HdrColorTransformShader implements AutoCloseable {
         close();
         width = w; height = h;
 
-        int vertex = compile(GL20.GL_VERTEX_SHADER, resource("/assets/flashbackplus/shaders/core/screenquad_flip.vsh"));
-        int fragment = compile(GL20.GL_FRAGMENT_SHADER, resource("/assets/flashbackplus/shaders/core/hdr_color_transform.fsh"));
+        int vertex = compile(GL20.GL_VERTEX_SHADER, resource("/assets/flashbackexportextras/shaders/core/screenquad_flip.vsh"));
+        int fragment = compile(GL20.GL_FRAGMENT_SHADER, resource("/assets/flashbackexportextras/shaders/core/hdr_color_transform.fsh"));
         program = GL20.glCreateProgram();
         GL20.glAttachShader(program, vertex); GL20.glAttachShader(program, fragment);
         GL20.glBindAttribLocation(program, 0, "Position");

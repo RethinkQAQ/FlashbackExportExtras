@@ -21,7 +21,7 @@
  */
 package com.rethinkqaq.flashbackexportextras.mixins;
 
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.exporting.HdrExportState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -33,9 +33,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class MixinHDRModConfig {
     @Shadow public boolean enableHDR;
     @Inject(method = "<init>", at = @At("RETURN"))
-    private void flashbackplus$readConfig(CallbackInfo ci) {
+    private void flashbackexportextras$readConfig(CallbackInfo ci) {
         HdrExportState.setHdrModLoaded(true);
         HdrExportState.setHdrModEnabled(enableHDR);
-        Flashbackplus.LOGGER.info("HDR Mod enabled: {}", enableHDR);
+        FlashbackExportExtras.LOGGER.info("HDR Mod enabled: {}", enableHDR);
     }
 }

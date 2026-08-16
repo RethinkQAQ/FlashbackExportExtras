@@ -25,9 +25,9 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.combo_options.VideoContainer;
 import com.moulberry.flashback.exporting.*;
-import com.rethinkqaq.flashbackexportextras.FlashbackPlusConfig;
-import com.rethinkqaq.flashbackexportextras.FlashbackPlusConfig.ExportMode;
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig.ExportMode;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.exporting.*;
 import com.rethinkqaq.flashbackexportextras.gpu.GpuExportBackendFactory;
 import net.minecraft.world.phys.Vec3;
@@ -70,20 +70,20 @@ public class MixinExportJob {
     private boolean isHdrMode;
 
     @Unique
-    private int flashbackplus_originalDummyFrames;
+    private int flashbackexportextras_originalDummyFrames;
 
     @Unique
-    private boolean flashbackplus_dummyFramesOverridden;
+    private boolean flashbackexportextras_dummyFramesOverridden;
 
     @Unique
-    private boolean flashbackplus_sessionActive;
+    private boolean flashbackexportextras_sessionActive;
 
     /*? if hdr {*/
     @Unique
     private HdrVideoWriter hdrWriterRef;
 
     @Unique
-    private long flashbackplus_hdrCaptureFrameCount;
+    private long flashbackexportextras_hdrCaptureFrameCount;
     /*?}*/
 
     // === Redirect createVideoWriter ===
@@ -93,12 +93,12 @@ public class MixinExportJob {
                     target = "Lcom/moulberry/flashback/exporting/ExportJob;createVideoWriter(Lcom/moulberry/flashback/exporting/ExportSettings;Ljava/lang/String;)Lcom/moulberry/flashback/exporting/VideoWriter;"),
             remap = false)
     private VideoWriter redirectCreateWriter(ExportSettings settings, String tempFileName) throws IOException {
-        Flashbackplus.LOGGER.info(
+        FlashbackExportExtras.LOGGER.info(
                 "ExportJob creating writer: output={}, container={}, resolution={}x{}, temp={}",
                 settings.output(), settings.container(), settings.resolutionX(), settings.resolutionY(), tempFileName);
-        flashbackplus$configureExportModes();
-        if (isExrMode && FlashbackPlusConfig.INSTANCE.exrSceneLinearHdr && !isExrSceneLinearHdr) {
-            Flashbackplus.LOGGER.warn(
+        flashbackexportextras$configureExportModes();
+        if (isExrMode && FlashbackExportExtrasConfig.INSTANCE.exrSceneLinearHdr && !isExrSceneLinearHdr) {
+            FlashbackExportExtras.LOGGER.warn(
                     "Scene-linear HDR EXR is unavailable in this runtime; exporting standard SDR color");
         }
         if (isExrMode) {
@@ -112,7 +112,7 @@ public class MixinExportJob {
             Path tempPath = java.nio.file.Path.of(tempFileName);
             int w = settings.resolutionX();
             int h = settings.resolutionY();
-            Flashbackplus.LOGGER.info("HDR export temporary path: {}, final path: {}", tempPath, settings.output());
+            FlashbackExportExtras.LOGGER.info("HDR export temporary path: {}, final path: {}", tempPath, settings.output());
             int bitrate = settings.bitrate() > 0
                     ? settings.bitrate()
                     : Math.min(288_000_000,
@@ -129,15 +129,15 @@ public class MixinExportJob {
     }
 
     @Unique
-    private void flashbackplus$configureExportModes() {
+    private void flashbackexportextras$configureExportModes() {
         /*? if hdr {*/
-        isHdrMode = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.HDR10
+        isHdrMode = FlashbackExportExtrasConfig.INSTANCE.getExportMode() == ExportMode.HDR10
                 && HdrExportState.isAvailable() && GpuExportBackendFactory.get().supportsHdr();
         /*?} else {*/
         /*isHdrMode = false;
         *//*?}*/
-        isExrMode = FlashbackPlusConfig.INSTANCE.getExportMode() == ExportMode.EXR;
-        isExrSceneLinearHdr = isExrMode && FlashbackPlusConfig.INSTANCE.exrSceneLinearHdr
+        isExrMode = FlashbackExportExtrasConfig.INSTANCE.getExportMode() == ExportMode.EXR;
+        isExrSceneLinearHdr = isExrMode && FlashbackExportExtrasConfig.INSTANCE.exrSceneLinearHdr
                 && HdrExportState.isAvailable()
                 && GpuExportBackendFactory.get().supportsSceneLinearHdr();
     }
@@ -147,23 +147,23 @@ public class MixinExportJob {
     @Inject(method = "doExport", at = @At("HEAD"), remap = false)
     private void onDoExportStart(VideoWriter videoWriter, SaveableFramebufferQueue downloader,
                                   CallbackInfo ci) {
-        Flashbackplus.LOGGER.info("ExportJob doExport started: writer={}",
+        FlashbackExportExtras.LOGGER.info("ExportJob doExport started: writer={}",
                 videoWriter == null ? "null" : videoWriter.getClass().getName());
-        flashbackplus_sessionActive = true;
+        flashbackexportextras_sessionActive = true;
         if (isExrMode) {
             com.moulberry.flashback.configuration.FlashbackConfigV1 config =
                     com.moulberry.flashback.Flashback.getConfig();
-            flashbackplus_originalDummyFrames = config.exporting.exportRenderDummyFrames;
+            flashbackexportextras_originalDummyFrames = config.exporting.exportRenderDummyFrames;
             config.exporting.exportRenderDummyFrames = 0;
-            flashbackplus_dummyFramesOverridden = true;
-            Flashbackplus.LOGGER.info("EXR export: disabled {} Flashback warm-up frame(s)",
-                    flashbackplus_originalDummyFrames);
+            flashbackexportextras_dummyFramesOverridden = true;
+            FlashbackExportExtras.LOGGER.info("EXR export: disabled {} Flashback warm-up frame(s)",
+                    flashbackexportextras_originalDummyFrames);
         }
         DepthCaptureState.reset();
         SceneLinearHdrCaptureState.reset();
         /*? if hdr {*/
         HdrVideoCaptureState.reset();
-        flashbackplus_hdrCaptureFrameCount = 0L;
+        flashbackexportextras_hdrCaptureFrameCount = 0L;
         /*?}*/
 
         ExportJob self = (ExportJob) (Object) this;
@@ -180,16 +180,16 @@ public class MixinExportJob {
             int h = self.getHeight();
             HdrExportState.width = w;
             HdrExportState.height = h;
-            HdrExportState.setPeakBrightness((float) FlashbackPlusConfig.INSTANCE.hdrPeakBrightness);
+            HdrExportState.setPeakBrightness((float) FlashbackExportExtrasConfig.INSTANCE.hdrPeakBrightness);
             HdrExportState.activate();
-            Flashbackplus.LOGGER.info("HDR export: {}x{} peak={}nits", w, h, HdrExportState.getPeakBrightness());
+            FlashbackExportExtras.LOGGER.info("HDR export: {}x{} peak={}nits", w, h, HdrExportState.getPeakBrightness());
         }
         /*?}*/
 
-        if (FlashbackPlusConfig.INSTANCE.exportCameraPath) {
+        if (FlashbackExportExtrasConfig.INSTANCE.exportCameraPath) {
             float aspectRatio = (float) settings.resolutionX() / (float) settings.resolutionY();
             cameraExporter = new CameraPathExporter(aspectRatio, settings.framerate(),
-                    FlashbackPlusConfig.INSTANCE.cameraPathRelativeOrigin);
+                    FlashbackExportExtrasConfig.INSTANCE.cameraPathRelativeOrigin);
         }
     }
 
@@ -199,7 +199,7 @@ public class MixinExportJob {
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;startDownload(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lcom/moulberry/flashback/exporting/SaveableFramebuffer;Z)V"),
             remap = false)
-    private void flashbackplus$captureAndStartDownload(SaveableFramebufferQueue downloader,
+    private void flashbackexportextras$captureAndStartDownload(SaveableFramebufferQueue downloader,
                                                         RenderTarget target,
                                                         SaveableFramebuffer framebuffer,
                                                         boolean flag) {
@@ -207,29 +207,29 @@ public class MixinExportJob {
             long frameId = DepthCaptureState.nextExportFrameId();
             GameRendererDepthAccess renderer =
                     (GameRendererDepthAccess) (Object) net.minecraft.client.Minecraft.getInstance().gameRenderer;
-            renderer.flashbackplus_captureDepthForFrame(target, frameId);
+            renderer.flashbackexportextras_captureDepthForFrame(target, frameId);
             if (isExrSceneLinearHdr) {
                 GpuExportBackendFactory.get().captureSceneLinearHdr(
                         target, target.width, target.height, frameId);
             }
         }
-        flashbackplus$captureHdrBeforeDownload(target);
+        flashbackexportextras$captureHdrBeforeDownload(target);
         downloader.startDownload(target, framebuffer, flag);
-        flashbackplus$recordCameraFrame();
+        flashbackexportextras$recordCameraFrame();
     }
 
     /** HDR capture shares the depth redirect so the two injectors cannot consume the same invocation. */
     @Unique
-    private void flashbackplus$captureHdrBeforeDownload(RenderTarget target) {
+    private void flashbackexportextras$captureHdrBeforeDownload(RenderTarget target) {
         /*? if hdr {*/
         if (!isHdrMode) return;
         if (target == null) return;
 
         float peak = HdrExportState.getPeakBrightness();
-        long frameId = flashbackplus_hdrCaptureFrameCount++;
+        long frameId = flashbackexportextras_hdrCaptureFrameCount++;
         GpuExportBackendFactory.get().captureHdr(
                 target, target.width, target.height, peak, frameId);
-        flashbackplus$drainHdrFrames();
+        flashbackexportextras$drainHdrFrames();
 
         // Step 1: Color transform — scRGB-nl → BT.2020 + PQ
 
@@ -237,7 +237,7 @@ public class MixinExportJob {
     }
 
     @Unique
-    private void flashbackplus$drainHdrFrames() {
+    private void flashbackexportextras$drainHdrFrames() {
         /*? if hdr {*/
         while (hdrWriterRef != null) {
             HdrVideoCaptureState.Frame frame =
@@ -253,48 +253,48 @@ public class MixinExportJob {
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;finish(Ljava/util/function/Consumer;)V"),
             remap = false)
-    private void flashbackplus$flushGpuBeforeFinish(VideoWriter videoWriter,
+    private void flashbackexportextras$flushGpuBeforeFinish(VideoWriter videoWriter,
                                                      SaveableFramebufferQueue downloader,
                                                      CallbackInfo ci) {
-        flashbackplusFlushGpuReadback();
+        flashbackexportextrasFlushGpuReadback();
     }
     *//*?} else {*/
     /*@Inject(method = "doExport",
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;finish()V"),
             remap = false)
-    private void flashbackplus$flushGpuBeforeFinish(VideoWriter videoWriter,
+    private void flashbackexportextras$flushGpuBeforeFinish(VideoWriter videoWriter,
                                                      SaveableFramebufferQueue downloader,
                                                      CallbackInfo ci) {
-        flashbackplusFlushGpuReadback();
+        flashbackexportextrasFlushGpuReadback();
     }
     *//*?}*/
 
     @Unique
-    private void flashbackplusFlushGpuReadback() {
+    private void flashbackexportextrasFlushGpuReadback() {
         if (!isExrMode && !isHdrMode) return;
-        Flashbackplus.LOGGER.info("Export GPU flush started: exr={}, hdr={}", isExrMode, isHdrMode);
+        FlashbackExportExtras.LOGGER.info("Export GPU flush started: exr={}, hdr={}", isExrMode, isHdrMode);
         GpuExportBackendFactory.get().flush();
         /*? if hdr {*/
         if (isHdrMode) {
-            flashbackplus$drainHdrFrames();
+            flashbackexportextras$drainHdrFrames();
             long written = hdrWriterRef == null ? 0L : hdrWriterRef.getFrameCount();
-            HdrVideoCaptureState.verifyComplete(flashbackplus_hdrCaptureFrameCount, written);
+            HdrVideoCaptureState.verifyComplete(flashbackexportextras_hdrCaptureFrameCount, written);
         }
         /*?}*/
         if (isExrMode) {
             net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
             com.rethinkqaq.flashbackexportextras.exporting.GameRendererDepthAccess renderer =
                     (com.rethinkqaq.flashbackexportextras.exporting.GameRendererDepthAccess) (Object) mc.gameRenderer;
-            renderer.flashbackplus_flushDepthPbo();
+            renderer.flashbackexportextras_flushDepthPbo();
         }
-        Flashbackplus.LOGGER.info("Export GPU flush completed");
+        FlashbackExportExtras.LOGGER.info("Export GPU flush completed");
     }
 
     // === Camera capture: called immediately AFTER startDownload ===
 
     @Unique
-    private void flashbackplus$recordCameraFrame() {
+    private void flashbackexportextras$recordCameraFrame() {
         if (cameraExporter == null) return;
 
         double partialClientTick = currentTickDouble - (int) currentTickDouble;
@@ -333,21 +333,21 @@ public class MixinExportJob {
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/ExportJob;doExport(Lcom/moulberry/flashback/exporting/VideoWriter;Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;)V"),
             remap = false)
-    private void flashbackplus$runExportSession(ExportJob instance, VideoWriter videoWriter,
+    private void flashbackexportextras$runExportSession(ExportJob instance, VideoWriter videoWriter,
                                                 SaveableFramebufferQueue downloader) {
         boolean completed = false;
         try {
             doExport(videoWriter, downloader);
             completed = true;
         } finally {
-            flashbackplus$finishExportSession(completed);
+            flashbackexportextras$finishExportSession(completed);
         }
     }
 
     @Unique
-    private void flashbackplus$finishExportSession(boolean completed) {
-        if (!flashbackplus_sessionActive) return;
-        Flashbackplus.LOGGER.info("Export session cleanup started: completed={}", completed);
+    private void flashbackexportextras$finishExportSession(boolean completed) {
+        if (!flashbackexportextras_sessionActive) return;
+        FlashbackExportExtras.LOGGER.info("Export session cleanup started: completed={}", completed);
         if (completed && cameraExporter != null && cameraExporter.getFrameCount() > 0) {
             try {
             cameraExporter.applyGaussianSmoothing();
@@ -360,34 +360,34 @@ public class MixinExportJob {
                     : videoPath.resolveSibling(base + "_camera.glb");
             try {
                 cameraExporter.finish(glbPath);
-                Flashbackplus.LOGGER.info("Camera path: {} frames → {}", cameraExporter.getFrameCount(), glbPath);
+                FlashbackExportExtras.LOGGER.info("Camera path: {} frames → {}", cameraExporter.getFrameCount(), glbPath);
             } catch (IOException e) {
-                Flashbackplus.LOGGER.error("Failed to write camera path GLB", e);
+                FlashbackExportExtras.LOGGER.error("Failed to write camera path GLB", e);
             }
             } catch (Throwable e) {
-                Flashbackplus.LOGGER.error("Failed to finalize camera path GLB", e);
+                FlashbackExportExtras.LOGGER.error("Failed to finalize camera path GLB", e);
             }
         }
 
-        flashbackplus$cleanupStep("HDR export state", () -> {
+        flashbackexportextras$cleanupStep("HDR export state", () -> {
             /*? if hdr {*/
             HdrExportState.deactivate();
             /*?}*/
         });
-        flashbackplus$cleanupStep("depth frame state", DepthCaptureState::reset);
-        flashbackplus$cleanupStep("scene-linear HDR frame state", SceneLinearHdrCaptureState::reset);
-        flashbackplus$cleanupStep("HDR10 frame state", () -> {
+        flashbackexportextras$cleanupStep("depth frame state", DepthCaptureState::reset);
+        flashbackexportextras$cleanupStep("scene-linear HDR frame state", SceneLinearHdrCaptureState::reset);
+        flashbackexportextras$cleanupStep("HDR10 frame state", () -> {
             /*? if hdr {*/
             HdrVideoCaptureState.reset();
-            flashbackplus_hdrCaptureFrameCount = 0L;
+            flashbackexportextras_hdrCaptureFrameCount = 0L;
             /*?}*/
         });
-        flashbackplus$cleanupStep("GPU backend", GpuExportBackendFactory::reset);
-        if (flashbackplus_dummyFramesOverridden) {
-            flashbackplus$cleanupStep("Flashback warm-up frame setting", () ->
+        flashbackexportextras$cleanupStep("GPU backend", GpuExportBackendFactory::reset);
+        if (flashbackexportextras_dummyFramesOverridden) {
+            flashbackexportextras$cleanupStep("Flashback warm-up frame setting", () ->
                     com.moulberry.flashback.Flashback.getConfig().exporting.exportRenderDummyFrames =
-                            flashbackplus_originalDummyFrames);
-            flashbackplus_dummyFramesOverridden = false;
+                            flashbackexportextras_originalDummyFrames);
+            flashbackexportextras_dummyFramesOverridden = false;
         }
         cameraExporter = null;
         isExrMode = false;
@@ -396,16 +396,16 @@ public class MixinExportJob {
         /*? if hdr {*/
         hdrWriterRef = null;
         /*?}*/
-        flashbackplus_sessionActive = false;
-        Flashbackplus.LOGGER.info("Export session cleanup completed");
+        flashbackexportextras_sessionActive = false;
+        FlashbackExportExtras.LOGGER.info("Export session cleanup completed");
     }
 
     @Unique
-    private void flashbackplus$cleanupStep(String name, Runnable cleanup) {
+    private void flashbackexportextras$cleanupStep(String name, Runnable cleanup) {
         try {
             cleanup.run();
         } catch (Throwable e) {
-            Flashbackplus.LOGGER.error("Export cleanup step failed: {}", name, e);
+            FlashbackExportExtras.LOGGER.error("Export cleanup step failed: {}", name, e);
         }
     }
 }

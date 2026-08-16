@@ -36,7 +36,7 @@ import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
 import java.nio.FloatBuffer;
 /*?}*/
-import com.rethinkqaq.flashbackexportextras.Flashbackplus;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.exporting.DepthCaptureState;
 import com.rethinkqaq.flashbackexportextras.gpu.GpuExportBackendFactory;
 import net.minecraft.client.Minecraft;
@@ -61,14 +61,14 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
     /*@Shadow @Final private GameRenderState gameRenderState;
     *//*?}*/
     @Unique
-    private boolean flashbackplus_cameraCaptureFailedLogged;
+    private boolean flashbackexportextras_cameraCaptureFailedLogged;
 
     /*? if >=26.2 {*/
     /*@Redirect(method = "renderLevel",
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
-    private void flashbackplus$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
+    private void flashbackexportextras$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
         if (!DepthCaptureState.active) encoder.clearDepthTexture(texture, depth);
     }
 
@@ -76,7 +76,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
-    private void flashbackplus$preserveDepthDuringGui(CommandEncoder encoder, GpuTexture texture, double depth) {
+    private void flashbackexportextras$preserveDepthDuringGui(CommandEncoder encoder, GpuTexture texture, double depth) {
         if (!DepthCaptureState.active) encoder.clearDepthTexture(texture, depth);
     }
     *//*?} elif >=26.1 {*/
@@ -84,7 +84,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
-    private void flashbackplus$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
+    private void flashbackexportextras$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
         if (DepthCaptureState.active) {
             RenderTarget target = Minecraft.getInstance().getMainRenderTarget();
             if (target != null) {
@@ -99,24 +99,24 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
             at = @At(value = "INVOKE",
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
-    private void flashbackplus$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
-        flashbackplus_snapshotWorldDepthBeforeClear();
+    private void flashbackexportextras$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
+        flashbackexportextras_snapshotWorldDepthBeforeClear();
         encoder.clearDepthTexture(texture, depth);
     }
     *//*?} elif >=1.21.4 {*/
     /*@Redirect(method = "renderLevel",
             at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(I)V"),
             remap = false)
-    private void flashbackplus$redirectClearInRenderLevel(int mask) {
-        if ((mask & 256) != 0) flashbackplus_snapshotWorldDepthBeforeClear();
+    private void flashbackexportextras$redirectClearInRenderLevel(int mask) {
+        if ((mask & 256) != 0) flashbackexportextras_snapshotWorldDepthBeforeClear();
         com.mojang.blaze3d.systems.RenderSystem.clear(mask);
     }
     *//*?} else {*/
     @Redirect(method = "renderLevel",
             at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(IZ)V"),
             remap = false)
-    private void flashbackplus$redirectClearInRenderLevel(int mask, boolean getError) {
-        if ((mask & 256) != 0) flashbackplus_snapshotWorldDepthBeforeClear();
+    private void flashbackexportextras$redirectClearInRenderLevel(int mask, boolean getError) {
+        if ((mask & 256) != 0) flashbackexportextras_snapshotWorldDepthBeforeClear();
         com.mojang.blaze3d.systems.RenderSystem.clear(mask, getError);
     }
     /*?}*/
@@ -126,7 +126,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
                     target = "Lnet/minecraft/client/renderer/GameRenderer;renderLevel(Lnet/minecraft/client/DeltaTracker;)V",
                     shift = At.Shift.AFTER),
             remap = false)
-    private void flashbackplus$captureCamera(CallbackInfo ci) {
+    private void flashbackexportextras$captureCamera(CallbackInfo ci) {
         try {
             Minecraft mc = Minecraft.getInstance();
             /*? if >=26.2 {*/
@@ -151,17 +151,17 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
                 DepthCaptureState.camPitch = camera.getXRot();
                 /*?}*/
             }
-            flashbackplus_cameraCaptureFailedLogged = false;
+            flashbackexportextras_cameraCaptureFailedLogged = false;
         } catch (Exception e) {
-            if (!flashbackplus_cameraCaptureFailedLogged) {
-                flashbackplus_cameraCaptureFailedLogged = true;
-                Flashbackplus.LOGGER.error("Failed to capture camera data for camera-path export", e);
+            if (!flashbackexportextras_cameraCaptureFailedLogged) {
+                flashbackexportextras_cameraCaptureFailedLogged = true;
+                FlashbackExportExtras.LOGGER.error("Failed to capture camera data for camera-path export", e);
             }
         }
     }
 
     @Override
-    public void flashbackplus_captureDepthForFrame(RenderTarget target, long frameId) {
+    public void flashbackexportextras_captureDepthForFrame(RenderTarget target, long frameId) {
         if (!DepthCaptureState.active || target == null) return;
         /*? if >=26.2 {*/
         /*CameraRenderState cameraState = gameRenderState.levelRenderState.cameraRenderState;
@@ -174,7 +174,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
             /*? if <26.1 {*/
             FloatBuffer snapshot = DepthCaptureState.takePendingWorldDepth();
             if (snapshot == null) {
-                Flashbackplus.LOGGER.warn("No world-depth snapshot available for EXR frame {}", frameId);
+                FlashbackExportExtras.LOGGER.warn("No world-depth snapshot available for EXR frame {}", frameId);
                 return;
             }
             DepthCaptureState.submit(new DepthCaptureState.DepthFrame(frameId, snapshot));
@@ -188,7 +188,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
     }
 
     @Unique
-    private void flashbackplus_snapshotWorldDepthBeforeClear() {
+    private void flashbackexportextras_snapshotWorldDepthBeforeClear() {
         /*? if >=26.2 {*/
         /*// 26.2 follows ReplayMod's strategy: suppress the clear and copy the
         // main RenderTarget depth beside the matching colour download.
@@ -229,11 +229,11 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
 
     /** Legacy PBO capture was removed; all remaining GPU queues flush through the backend. */
     @Override
-    public void flashbackplus_flushDepthPbo() {
+    public void flashbackexportextras_flushDepthPbo() {
     }
 
     @Inject(method = "render", at = @At("HEAD"), remap = false)
-    private void flashbackplus$releasePendingGpuResources(CallbackInfo ci) {
+    private void flashbackexportextras$releasePendingGpuResources(CallbackInfo ci) {
         DepthCaptureState.beginRenderFrame();
         GpuExportBackendFactory.releasePendingOnRenderThread();
     }

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/main/resources/assets/flashbackplus/icon.png" width="128" alt="Flashback Export Extras icon">
+  <img src="src/main/resources/assets/flashbackexportextras/icon.png" width="128" alt="Flashback Export Extras icon">
   <h1>Flashback Export Extras</h1>
   <p>
     Flashback Export Extras is a Fabric add-on that extends Flashback's Minecraft replay export features.

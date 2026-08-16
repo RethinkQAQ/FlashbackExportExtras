@@ -1,6 +1,6 @@
 {
-  "vertex": "flashbackplus:screenquad_flip",
-  "fragment": "flashbackplus:hdr_color_transform",
+  "vertex": "flashbackexportextras:screenquad_flip",
+  "fragment": "flashbackexportextras:hdr_color_transform",
   "samplers": [
     { "name": "InSampler", "location": 0 }
   ],
