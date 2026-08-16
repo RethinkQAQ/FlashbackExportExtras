@@ -105,7 +105,8 @@ public class MixinExportJob {
             Path outputDir = settings.output();
             int w = settings.resolutionX();
             int h = settings.resolutionY();
-            return new ExrVideoWriter(outputDir, w, h, isExrSceneLinearHdr);
+            return new ExrVideoWriter(outputDir, w, h, isExrSceneLinearHdr,
+                    FlashbackExportExtrasConfig.INSTANCE.getExrCompression());
         }
         /*? if hdr {*/
         if (isHdrMode) {

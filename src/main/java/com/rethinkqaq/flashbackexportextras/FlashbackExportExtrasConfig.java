@@ -48,6 +48,9 @@ public class FlashbackExportExtrasConfig {
     /** True = preserve scene-linear Rec.709 HDR color in OpenEXR output. */
     public boolean exrSceneLinearHdr = false;
 
+    /** Lossless EXR compression preset selected by the user. */
+    public ExrCompression exrCompression = ExrCompression.ZIP;
+
     /** True = export camera path as GLB alongside any video export. */
     public boolean exportCameraPath = true;
 
@@ -64,6 +67,16 @@ public class FlashbackExportExtrasConfig {
         VIDEO,
         EXR,
         HDR10
+    }
+
+    public enum ExrCompression {
+        ZIP,
+        ZIPS,
+        NONE
+    }
+
+    public ExrCompression getExrCompression() {
+        return exrCompression == null ? ExrCompression.ZIP : exrCompression;
     }
 
     public ExportMode getExportMode() {
@@ -89,6 +102,12 @@ public class FlashbackExportExtrasConfig {
                     } else if (object.has("exportAsExr") && object.get("exportAsExr").getAsBoolean()) {
                         INSTANCE.setExportMode(ExportMode.EXR);
                     }
+                }
+                // Migrate the temporary boolean used by the first compression
+                // option implementation to the new three-level setting.
+                if (!object.has("exrCompression") && object.has("exrUncompressed")
+                        && object.get("exrUncompressed").getAsBoolean()) {
+                    INSTANCE.exrCompression = ExrCompression.NONE;
                 }
             } catch (IOException e) {
                 FlashbackExportExtras.LOGGER.error("Failed to load config", e);

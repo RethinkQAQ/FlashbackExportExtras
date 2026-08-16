@@ -25,6 +25,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.exporting.VideoWriter;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig.ExrCompression;
 
 import java.io.IOException;
 import java.nio.FloatBuffer;
@@ -60,13 +61,15 @@ public class ExrVideoWriter implements VideoWriter {
     private long nextFrameId;
     private long encodedFrameCount;
 
-    public ExrVideoWriter(Path outputDir, int width, int height, boolean sceneLinearHdr) throws IOException {
+    public ExrVideoWriter(Path outputDir, int width, int height, boolean sceneLinearHdr,
+                          ExrCompression compression) throws IOException {
         this.sceneLinearHdr = sceneLinearHdr;
         this.exrWriters = new MultiLayerExrWriter[WRITER_COUNT];
         try {
             for (int i = 0; i < WRITER_COUNT; i++) {
                 exrWriters[i] = new MultiLayerExrWriter(outputDir, width, height,
-                        FlashbackExportExtrasConfig.INSTANCE.depthLinearizeWorldSpace, sceneLinearHdr);
+                        FlashbackExportExtrasConfig.INSTANCE.depthLinearizeWorldSpace, sceneLinearHdr,
+                        compression);
             }
         } catch (IOException | RuntimeException e) {
             for (MultiLayerExrWriter writer : exrWriters) {
@@ -82,8 +85,8 @@ public class ExrVideoWriter implements VideoWriter {
             writerThread.start();
             writerThreads[i] = writerThread;
         }
-        FlashbackExportExtras.LOGGER.info("EXR writers started: output={}, workers={}, queueCapacity={}, sceneLinearHdr={}",
-                outputDir, WRITER_COUNT, QUEUE_CAPACITY, sceneLinearHdr);
+        FlashbackExportExtras.LOGGER.info("EXR writers started: output={}, workers={}, queueCapacity={}, sceneLinearHdr={}, compression={}",
+                outputDir, WRITER_COUNT, QUEUE_CAPACITY, sceneLinearHdr, compression);
     }
 
     @Override

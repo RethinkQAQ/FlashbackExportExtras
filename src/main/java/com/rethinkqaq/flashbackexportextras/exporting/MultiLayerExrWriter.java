@@ -23,6 +23,7 @@ package com.rethinkqaq.flashbackexportextras.exporting;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig.ExrCompression;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.util.tinyexr.EXRChannelInfo;
@@ -67,10 +68,9 @@ public class MultiLayerExrWriter implements AutoCloseable {
     private final int height;
     private final boolean linearizeDepth;
     private final boolean sceneLinearHdr;
+    private final int compressionType;
     private int frameCount;
     private boolean closed = false;
-    private int depthDebugFrame;
-    private int hdrDebugFrame;
 
     // === Pre-allocated pixel buffers (reused every frame) ===
     private final FloatBuffer rBuf, gBuf, bBuf, aBuf, zBuf;
@@ -87,12 +87,17 @@ public class MultiLayerExrWriter implements AutoCloseable {
     private final List<ByteBuffer> customAttributeBuffers;
 
     public MultiLayerExrWriter(Path outputDir, int width, int height, boolean linearizeDepth,
-                               boolean sceneLinearHdr) throws IOException {
+                               boolean sceneLinearHdr, ExrCompression compression) throws IOException {
         this.outputDir = outputDir;
         this.width = width;
         this.height = height;
         this.linearizeDepth = linearizeDepth;
         this.sceneLinearHdr = sceneLinearHdr;
+        this.compressionType = switch (compression == null ? ExrCompression.ZIP : compression) {
+            case NONE -> TinyEXR.TINYEXR_COMPRESSIONTYPE_NONE;
+            case ZIPS -> TinyEXR.TINYEXR_COMPRESSIONTYPE_ZIPS;
+            case ZIP -> TinyEXR.TINYEXR_COMPRESSIONTYPE_ZIP;
+        };
         this.frameCount = 0;
         Files.createDirectories(outputDir);
 
@@ -223,33 +228,6 @@ public class MultiLayerExrWriter implements AutoCloseable {
             bBuf.put(i, halfToFloat(data.getShort(offset + 4)));
             aBuf.put(i, halfToFloat(data.getShort(offset + 6)));
         }
-        logSceneLinearHdrOutput();
-    }
-
-    private void logSceneLinearHdrOutput() {
-        int frame = hdrDebugFrame++;
-        if (frame >= 3 && frame % 30 != 0) return;
-        float min = Float.POSITIVE_INFINITY;
-        float max = Float.NEGATIVE_INFINITY;
-        int finite = 0;
-        int aboveOne = 0;
-        int count = width * height * 3;
-        for (int i = 0; i < width * height; i++) {
-            float r = rBuf.get(i);
-            float g = gBuf.get(i);
-            float b = bBuf.get(i);
-            for (int channel = 0; channel < 3; channel++) {
-                float value = channel == 0 ? r : channel == 1 ? g : b;
-                if (!Float.isFinite(value)) continue;
-                min = Math.min(min, value);
-                max = Math.max(max, value);
-                finite++;
-                if (value > 1.0f) aboveOne++;
-            }
-        }
-        FlashbackExportExtras.LOGGER.info(
-                "EXR scene-linear HDR #{}: finite={}/{}, min={}, max={}, samplesAboveOne={}",
-                frame, finite, count, min, max, aboveOne);
     }
 
     private static float halfToFloat(short half) {
@@ -301,32 +279,6 @@ public class MultiLayerExrWriter implements AutoCloseable {
             }
         }
 
-        logDepthOutput(zNear, zFar);
-    }
-
-    private void logDepthOutput(float zNear, float zFar) {
-        int frame = depthDebugFrame++;
-        if (frame >= 3 && frame % 30 != 0) return;
-
-        float min = Float.POSITIVE_INFINITY;
-        float max = Float.NEGATIVE_INFINITY;
-        int finite = 0;
-        int count = zBuf.capacity();
-        for (int i = 0; i < count; i++) {
-            float value = zBuf.get(i);
-            if (Float.isFinite(value)) {
-                min = Math.min(min, value);
-                max = Math.max(max, value);
-                finite++;
-            }
-        }
-
-        int center = Math.max(0, Math.min(count - 1, (height / 2) * width + width / 2));
-        int quarter = Math.max(0, Math.min(count - 1, (height / 4) * width + width / 4));
-        com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.info(
-                "EXR depth output #{}: linearize={}, near={}, far={}, finite={}/{}, min={}, max={}, q1={}, center={}, q3={}",
-                frame, linearizeDepth, zNear, zFar, finite, count, min, max,
-                zBuf.get(quarter), zBuf.get(center), zBuf.get(Math.max(0, count - 1 - quarter)));
     }
 
     /**
@@ -348,9 +300,7 @@ public class MultiLayerExrWriter implements AutoCloseable {
             header.num_custom_attributes(1);
             header.custom_attributes(customAttributes);
         }
-        // Lossless ZIP compression keeps the Blender-oriented multi-layer
-        // layout intact while substantially reducing disk bandwidth.
-        header.compression_type(TinyEXR.TINYEXR_COMPRESSIONTYPE_ZIP);
+        header.compression_type(compressionType);
 
         image.width(width);
         image.height(height);
@@ -361,12 +311,17 @@ public class MultiLayerExrWriter implements AutoCloseable {
         ByteBuffer pathBuf = MemoryUtil.memUTF8(filePath.toAbsolutePath().toString());
         PointerBuffer err = MemoryUtil.memAllocPointer(1);
         try {
+            long tinyExrStarted = System.nanoTime();
             int result = TinyEXR.SaveEXRImageToFile(image, header, pathBuf, err);
+            long tinyExrNanos = System.nanoTime() - tinyExrStarted;
             if (result != 0) {
                 long errAddr = err.get(0);
                 String error = errAddr != 0 ? MemoryUtil.memUTF8(errAddr) : "unknown error";
                 throw new IOException("tinyexr SaveEXRImageToFile failed: " + error + " (code " + result + ")");
             }
+            long fileSize = Files.exists(filePath) ? Files.size(filePath) : -1L;
+            ExportPerformanceTrace.tinyExr(frameNumber, tinyExrNanos, fileSize,
+                    compressionType, filePath.toString());
         } finally {
             MemoryUtil.memFree(err);
             MemoryUtil.memFree(pathBuf);

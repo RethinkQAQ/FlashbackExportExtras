@@ -132,6 +132,35 @@ public class MixinStartExportWindow {
                 ImGui.setTooltip(I18n.get("flashbackexportextras.linearize_depth_tooltip"));
             }
 
+            FlashbackExportExtrasConfig.ExrCompression compression =
+                    FlashbackExportExtrasConfig.INSTANCE.getExrCompression();
+            String compressionLabel = switch (compression) {
+                case ZIP -> I18n.get("flashbackexportextras.exr_compression_zip");
+                case ZIPS -> I18n.get("flashbackexportextras.exr_compression_zips");
+                case NONE -> I18n.get("flashbackexportextras.exr_compression_none");
+            };
+            if (ImGui.beginCombo(I18n.get("flashbackexportextras.exr_compression"), compressionLabel)) {
+                if (ImGui.selectable(I18n.get("flashbackexportextras.exr_compression_zip"),
+                        compression == FlashbackExportExtrasConfig.ExrCompression.ZIP)) {
+                    FlashbackExportExtrasConfig.INSTANCE.exrCompression = FlashbackExportExtrasConfig.ExrCompression.ZIP;
+                    FlashbackExportExtrasConfig.save();
+                }
+                if (ImGui.selectable(I18n.get("flashbackexportextras.exr_compression_zips"),
+                        compression == FlashbackExportExtrasConfig.ExrCompression.ZIPS)) {
+                    FlashbackExportExtrasConfig.INSTANCE.exrCompression = FlashbackExportExtrasConfig.ExrCompression.ZIPS;
+                    FlashbackExportExtrasConfig.save();
+                }
+                if (ImGui.selectable(I18n.get("flashbackexportextras.exr_compression_none"),
+                        compression == FlashbackExportExtrasConfig.ExrCompression.NONE)) {
+                    FlashbackExportExtrasConfig.INSTANCE.exrCompression = FlashbackExportExtrasConfig.ExrCompression.NONE;
+                    FlashbackExportExtrasConfig.save();
+                }
+                ImGui.endCombo();
+            }
+            if (ImGui.isItemHovered()) {
+                ImGui.setTooltip(I18n.get("flashbackexportextras.exr_compression_tooltip"));
+            }
+
             /*? if hdr {*/
             boolean sceneLinearHdrAvailable = HdrExportState.isAvailable()
                     && GpuExportBackendFactory.get().supportsSceneLinearHdr();
