@@ -51,6 +51,9 @@ public class FlashbackExportExtrasConfig {
     /** Lossless EXR compression preset selected by the user. */
     public ExrCompression exrCompression = ExrCompression.ZIP;
 
+    /** Optional single-level subdirectory name for the EXR sequence. */
+    public String exrOutputName = "";
+
     /** True = export camera path as GLB alongside any video export. */
     public boolean exportCameraPath = true;
 

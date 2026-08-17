@@ -7,6 +7,8 @@
   "flashbackexportextras.relative_camera_path": "相对原点",
   "flashbackexportextras.relative_camera_path_tooltip": "将相机路径偏移使首帧位于 (0,0,0)。\n方便在 Blender 中定位资源。",
   "flashbackexportextras.exr_info": "导出多层 OpenEXR 帧（颜色 + 深度）。\n禁用抗锯齿以确保深度精度。",
+  "flashbackexportextras.exr_output_name": "EXR 序列名称",
+  "flashbackexportextras.exr_output_name_tooltip": "帧会写入此名称的单级子目录。留空时自动生成带日期和时间的名称。",
   "flashbackexportextras.linearize_depth": "世界空间线性化",
   "flashbackexportextras.linearize_depth_tooltip": "将 NDC 深度 [0,1] 转换为世界空间距离。\n推荐用于 Blender 合成 — 深度值变为实际方块距离。",
   "flashbackexportextras.exr_compression": "OpenEXR 压缩方式",

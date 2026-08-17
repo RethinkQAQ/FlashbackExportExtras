@@ -7,6 +7,8 @@
   "flashbackexportextras.relative_camera_path": "Relative Origin",
   "flashbackexportextras.relative_camera_path_tooltip": "Shift the camera path so the first frame is at (0,0,0).\nEasier to position assets in Blender.",
   "flashbackexportextras.exr_info": "Exports multi-layer OpenEXR frames with color and depth.\nAnti-aliasing is disabled for depth accuracy.",
+  "flashbackexportextras.exr_output_name": "EXR sequence name",
+  "flashbackexportextras.exr_output_name_tooltip": "Frames are written to a single-level subfolder with this name. Leave blank to generate a timestamped name automatically.",
   "flashbackexportextras.linearize_depth": "Linearize Depth (World-Space)",
   "flashbackexportextras.linearize_depth_tooltip": "Convert NDC depth [0,1] to world-space distance.\nRecommended for Blender compositing — depth values become actual block distances.",
   "flashbackexportextras.exr_compression": "OpenEXR compression",

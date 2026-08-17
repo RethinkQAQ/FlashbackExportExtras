@@ -29,6 +29,7 @@ import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig.ExportMo
 import com.rethinkqaq.flashbackexportextras.exporting.HdrExportState;
 import com.rethinkqaq.flashbackexportextras.gpu.GpuExportBackendFactory;
 import imgui.moulberry90.ImGui;
+import imgui.moulberry90.type.ImString;
 import net.minecraft.client.resources.language.I18n;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -37,6 +38,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.concurrent.CompletableFuture;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 import com.moulberry.flashback.exporting.ExportSettings;
 
@@ -47,6 +50,11 @@ import com.moulberry.flashback.exporting.ExportSettings;
  */
 @Mixin(value = com.moulberry.flashback.editor.ui.windows.StartExportWindow.class, remap = false)
 public class MixinStartExportWindow {
+
+    private static final ImString EXR_OUTPUT_NAME = new ImString("", 128);
+    private static boolean exrOutputNameInitialized;
+    private static final DateTimeFormatter EXR_DEFAULT_NAME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'_HH_mm");
 
     /** Trace the asynchronous folder/file selection before an ExportJob exists. */
     @Inject(method = "createExportSettings", at = @At("RETURN"), remap = false)
@@ -121,6 +129,25 @@ public class MixinStartExportWindow {
 
             ImGui.spacing();
             ImGui.textWrapped(I18n.get("flashbackexportextras.exr_info"));
+
+            if (!exrOutputNameInitialized) {
+                String configuredName = FlashbackExportExtrasConfig.INSTANCE.exrOutputName == null
+                        ? "" : FlashbackExportExtrasConfig.INSTANCE.exrOutputName.trim();
+                if (configuredName.isEmpty()) {
+                    configuredName = LocalDateTime.now().format(EXR_DEFAULT_NAME_FORMAT);
+                    FlashbackExportExtrasConfig.INSTANCE.exrOutputName = configuredName;
+                    FlashbackExportExtrasConfig.save();
+                }
+                EXR_OUTPUT_NAME.set(configuredName);
+                exrOutputNameInitialized = true;
+            }
+            if (ImGui.inputText(I18n.get("flashbackexportextras.exr_output_name"), EXR_OUTPUT_NAME)) {
+                FlashbackExportExtrasConfig.INSTANCE.exrOutputName = EXR_OUTPUT_NAME.get().trim();
+                FlashbackExportExtrasConfig.save();
+            }
+            if (ImGui.isItemHovered()) {
+                ImGui.setTooltip(I18n.get("flashbackexportextras.exr_output_name_tooltip"));
+            }
 
             // Depth linearization option
             boolean lin = FlashbackExportExtrasConfig.INSTANCE.depthLinearizeWorldSpace;

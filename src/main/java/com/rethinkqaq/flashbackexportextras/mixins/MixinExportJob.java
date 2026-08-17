@@ -42,9 +42,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Mixin(value = ExportJob.class, remap = false)
 public class MixinExportJob {
+
+    private static final DateTimeFormatter EXR_DEFAULT_NAME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'_HH_mm");
 
     @Shadow
     private ExportSettings settings;
@@ -102,7 +107,20 @@ public class MixinExportJob {
                     "Scene-linear HDR EXR is unavailable in this runtime; exporting standard SDR color");
         }
         if (isExrMode) {
-            Path outputDir = settings.output();
+            String configuredName = FlashbackExportExtrasConfig.INSTANCE.exrOutputName == null
+                    ? "" : FlashbackExportExtrasConfig.INSTANCE.exrOutputName.trim();
+            String outputName = configuredName.isEmpty()
+                    ? LocalDateTime.now().format(EXR_DEFAULT_NAME_FORMAT)
+                    : configuredName;
+            outputName = outputName.replaceAll("[^A-Za-z0-9._-]", "_");
+            if (outputName.isEmpty() || outputName.equals(".") || outputName.equals("..")) {
+                outputName = "export";
+            }
+            Path outputDir = settings.output().resolve(outputName).normalize();
+            if (!outputDir.getParent().equals(settings.output().toAbsolutePath().normalize())) {
+                throw new IOException("Invalid EXR output name: " + configuredName);
+            }
+            FlashbackExportExtras.LOGGER.info("OpenEXR frame output directory: {}", outputDir);
             int w = settings.resolutionX();
             int h = settings.resolutionY();
             return new ExrVideoWriter(outputDir, w, h, isExrSceneLinearHdr,
