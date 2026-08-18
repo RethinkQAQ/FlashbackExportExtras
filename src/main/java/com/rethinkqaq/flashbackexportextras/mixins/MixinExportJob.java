@@ -374,17 +374,19 @@ public class MixinExportJob {
             String videoName = videoPath.getFileName().toString();
             int dot = videoName.lastIndexOf('.');
             String base = dot > 0 ? videoName.substring(0, dot) : videoName;
-            Path glbPath = isExrMode
-                    ? videoPath.resolve("camera.glb")
-                    : videoPath.resolveSibling(base + "_camera.glb");
+            CameraPathExporter.Format cameraFormat = FlashbackExportExtrasConfig.INSTANCE.getCameraExportFormat();
+            Path cameraPath = isExrMode
+                    ? videoPath.resolve(cameraFormat.fileName())
+                    : videoPath.resolveSibling(base + "_" + cameraFormat.fileStem() + "." + cameraFormat.extension());
             try {
-                cameraExporter.finish(glbPath);
-                FlashbackExportExtras.LOGGER.info("Camera path: {} frames → {}", cameraExporter.getFrameCount(), glbPath);
+                cameraExporter.finish(cameraPath, cameraFormat);
+                FlashbackExportExtras.LOGGER.info("Camera path ({}) : {} frames → {}", cameraFormat,
+                        cameraExporter.getFrameCount(), cameraPath);
             } catch (IOException e) {
-                FlashbackExportExtras.LOGGER.error("Failed to write camera path GLB", e);
+                FlashbackExportExtras.LOGGER.error("Failed to write camera path {}", cameraFormat, e);
             }
             } catch (Throwable e) {
-                FlashbackExportExtras.LOGGER.error("Failed to finalize camera path GLB", e);
+                FlashbackExportExtras.LOGGER.error("Failed to finalize camera path", e);
             }
         }
 

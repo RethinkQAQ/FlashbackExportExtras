@@ -25,6 +25,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.rethinkqaq.flashbackexportextras.exporting.CameraPathExporter;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -54,8 +55,11 @@ public class FlashbackExportExtrasConfig {
     /** Optional single-level subdirectory name for the EXR sequence. */
     public String exrOutputName = "";
 
-    /** True = export camera path as GLB alongside any video export. */
+    /** True = export a camera path alongside the selected export. */
     public boolean exportCameraPath = true;
+
+    /** File format used for the optional camera path export. */
+    public CameraPathExporter.Format cameraExportFormat = CameraPathExporter.Format.GLB;
 
     /** True = offset camera path to start at origin. */
     public boolean cameraPathRelativeOrigin = true;
@@ -80,6 +84,10 @@ public class FlashbackExportExtrasConfig {
 
     public ExrCompression getExrCompression() {
         return exrCompression == null ? ExrCompression.ZIP : exrCompression;
+    }
+
+    public CameraPathExporter.Format getCameraExportFormat() {
+        return cameraExportFormat == null ? CameraPathExporter.Format.GLB : cameraExportFormat;
     }
 
     public ExportMode getExportMode() {

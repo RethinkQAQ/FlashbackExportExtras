@@ -33,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Exports camera path animation as a GLB (Binary glTF 2.0) file for Blender.
@@ -42,6 +43,38 @@ import java.util.List;
  * Writes animation channels for translation, rotation, and yfov (KHR_animation_pointer).
  */
 public class CameraPathExporter {
+
+    /**
+     * Camera path formats exported from the same sampled Minecraft camera path.
+     * GLB remains the default so existing configuration files retain their output.
+     */
+    public enum Format {
+        GLB("camera", "glb"),
+        USDA("camera", "usda"),
+        JSON("camera", "json"),
+        AFTER_EFFECTS_JSX("camera", "jsx"),
+        FUSION_LUA("camera_fusion", "lua");
+
+        private final String fileStem;
+        private final String extension;
+
+        Format(String fileStem, String extension) {
+            this.fileStem = fileStem;
+            this.extension = extension;
+        }
+
+        public String fileStem() {
+            return fileStem;
+        }
+
+        public String fileName() {
+            return fileStem + "." + extension;
+        }
+
+        public String extension() {
+            return extension;
+        }
+    }
 
     private final float aspectRatio;
     private final double framerate;
@@ -271,6 +304,189 @@ public class CameraPathExporter {
             writeLE(out, 0x004E4942); // "BIN\0"
             out.write(buf.array(), 0, totalLen);
         }
+    }
+
+    /** Writes the sampled path in the requested format. */
+    public void finish(Path outputPath, Format format) throws IOException {
+        Format resolvedFormat = format == null ? Format.GLB : format;
+        switch (resolvedFormat) {
+            case GLB -> finish(outputPath);
+            case USDA -> writeUsda(outputPath);
+            case JSON -> writeJson(outputPath);
+            case AFTER_EFFECTS_JSX -> writeAfterEffectsJsx(outputPath);
+            case FUSION_LUA -> writeFusionLua(outputPath);
+        }
+    }
+
+    /**
+     * Writes a USDA camera using the same right-handed, Y-up transform used by
+     * the GLB export. Time samples are frame numbers and the stage frame rate
+     * carries the recorded export FPS.
+     */
+    private void writeUsda(Path outputPath) throws IOException {
+        if (frameCount == 0) return;
+        createOutputDirectory(outputPath);
+
+        double verticalAperture = 36.0 / aspectRatio;
+        StringBuilder out = new StringBuilder(1024 + frameCount * 180);
+        out.append("#usda 1.0\n(\n")
+                .append("    defaultPrim = \"FlashbackCamera\"\n")
+                .append("    framesPerSecond = ").append(number(framerate)).append("\n")
+                .append("    timeCodesPerSecond = ").append(number(framerate)).append("\n")
+                .append("    startTimeCode = 0\n")
+                .append("    endTimeCode = ").append(frameCount - 1).append("\n")
+                .append("    upAxis = \"Y\"\n")
+                .append(")\n\n")
+                .append("def Camera \"FlashbackCamera\"\n{\n")
+                .append("    float horizontalAperture = 36\n")
+                .append("    float verticalAperture = ").append(number(verticalAperture)).append("\n")
+                .append("    float2 clippingRange = (0.05, 1000)\n")
+                .append("    double3 xformOp:translate.timeSamples = {\n");
+        for (int i = 0; i < frameCount; i++) {
+            Vec3 position = transformedPosition(i);
+            out.append("        ").append(i).append(": (")
+                    .append(number(position.x)).append(", ")
+                    .append(number(position.y)).append(", ")
+                    .append(number(position.z)).append(")")
+                    .append(i + 1 == frameCount ? "\n" : ",\n");
+        }
+        out.append("    }\n    quatf xformOp:orient.timeSamples = {\n");
+        for (int i = 0; i < frameCount; i++) {
+            float[] rotation = yawPitchToQuaternion(yaws.get(i), pitches.get(i));
+            out.append("        ").append(i).append(": (")
+                    .append(number(rotation[3])).append(", (")
+                    .append(number(rotation[0])).append(", ")
+                    .append(number(rotation[1])).append(", ")
+                    .append(number(rotation[2])).append("))")
+                    .append(i + 1 == frameCount ? "\n" : ",\n");
+        }
+        out.append("    }\n    float focalLength.timeSamples = {\n");
+        for (int i = 0; i < frameCount; i++) {
+            double focalLength = verticalAperture / (2.0 * Math.tan(Math.toRadians(fovs.get(i)) / 2.0));
+            out.append("        ").append(i).append(": ").append(number(focalLength))
+                    .append(i + 1 == frameCount ? "\n" : ",\n");
+        }
+        out.append("    }\n    uniform token[] xformOpOrder = [\"xformOp:translate\", \"xformOp:orient\"]\n}\n");
+        Files.writeString(outputPath, out, StandardCharsets.UTF_8);
+    }
+
+    /** Writes an interchange-friendly, plain-text description of every sampled frame. */
+    private void writeJson(Path outputPath) throws IOException {
+        if (frameCount == 0) return;
+        createOutputDirectory(outputPath);
+
+        JsonObject root = new JsonObject();
+        root.addProperty("format", "Flashback Export Extras Camera Path");
+        root.addProperty("version", 1);
+        root.addProperty("framesPerSecond", framerate);
+        root.addProperty("aspectRatio", aspectRatio);
+        root.addProperty("relativeOrigin", relativeOrigin);
+        root.addProperty("coordinateSystem", "right-handed Y-up; X/Z converted from Minecraft as GLB/USD");
+        root.addProperty("verticalFov", true);
+
+        JsonArray frames = new JsonArray();
+        for (int i = 0; i < frameCount; i++) {
+            Vec3 position = transformedPosition(i);
+            float[] rotation = yawPitchToQuaternion(yaws.get(i), pitches.get(i));
+            JsonObject frame = new JsonObject();
+            frame.addProperty("frame", i);
+            frame.addProperty("time", times.get(i));
+            frame.add("position", v3((float) position.x, (float) position.y, (float) position.z));
+            frame.add("rotationQuaternion", v4(rotation[0], rotation[1], rotation[2], rotation[3]));
+            frame.addProperty("verticalFovDegrees", fovs.get(i));
+            frames.add(frame);
+        }
+        root.add("frames", frames);
+        Files.writeString(outputPath, new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(root),
+                StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Writes an ExtendScript importer. It creates and keyframes an After Effects
+     * camera in the active composition; users can adjust the documented scale to
+     * match the scale of their imported scene.
+     */
+    private void writeAfterEffectsJsx(Path outputPath) throws IOException {
+        if (frameCount == 0) return;
+        createOutputDirectory(outputPath);
+
+        StringBuilder out = new StringBuilder(2048 + frameCount * 210);
+        out.append("// Flashback Export Extras camera path importer\n")
+                .append("// Coordinate system: right-handed Y-up. Adjust WORLD_SCALE to match your scene.\n")
+                .append("(function () {\n")
+                .append("    app.beginUndoGroup(\"Import Flashback Camera\");\n")
+                .append("    try {\n")
+                .append("        var comp = app.project.activeItem;\n")
+                .append("        if (!(comp instanceof CompItem)) throw new Error(\"Select a composition before running this script.\");\n")
+                .append("        var WORLD_SCALE = 100.0;\n")
+                .append("        var camera = comp.layers.addCamera(\"Flashback Camera\", [comp.width / 2, comp.height / 2]);\n")
+                .append("        camera.autoOrient = AutoOrientType.NO_AUTO_ORIENT;\n")
+                .append("        var transform = camera.property(\"Transform\");\n")
+                .append("        var position = transform.property(\"Position\");\n")
+                .append("        var orientation = transform.property(\"Orientation\");\n")
+                .append("        var zoom = camera.property(\"Camera Options\").property(\"Zoom\");\n");
+        for (int i = 0; i < frameCount; i++) {
+            Vec3 position = transformedPosition(i);
+            double horizontalFov = horizontalFovRadians(fovs.get(i));
+            double zoom = 1.0 / (2.0 * Math.tan(horizontalFov / 2.0));
+            out.append("        position.setValueAtTime(").append(number(times.get(i))).append(", [comp.width / 2 + ")
+                    .append(number(position.x)).append(" * WORLD_SCALE, comp.height / 2 - ")
+                    .append(number(position.y)).append(" * WORLD_SCALE, ")
+                    .append(number(position.z)).append(" * WORLD_SCALE]);\n")
+                    .append("        orientation.setValueAtTime(").append(number(times.get(i))).append(", [")
+                    .append(number(-pitches.get(i))).append(", ").append(number(-yaws.get(i))).append(", 0]);\n")
+                    .append("        zoom.setValueAtTime(").append(number(times.get(i))).append(", comp.width * ")
+                    .append(number(zoom)).append(");\n");
+        }
+        out.append("    } finally {\n")
+                .append("        app.endUndoGroup();\n")
+                .append("    }\n")
+                .append("}());\n");
+        Files.writeString(outputPath, out, StandardCharsets.UTF_8);
+    }
+
+    /** Writes a Fusion Lua script that creates and keyframes a Camera3D tool. */
+    private void writeFusionLua(Path outputPath) throws IOException {
+        if (frameCount == 0) return;
+        createOutputDirectory(outputPath);
+
+        StringBuilder out = new StringBuilder(2048 + frameCount * 220);
+        out.append("-- Flashback Export Extras camera path importer\n")
+                .append("-- Coordinate system: right-handed Y-up, matching the GLB and USDA exports.\n")
+                .append("local camera = comp:AddTool(\"Camera3D\", -32768, -32768)\n")
+                .append("camera:SetAttrs({ TOOLS_Name = \"Flashback Camera\" })\n")
+                .append("-- Timeline frame 0 corresponds to the first exported frame.\n");
+        for (int i = 0; i < frameCount; i++) {
+            Vec3 position = transformedPosition(i);
+            out.append("camera.Transform3DOp.Translate.X[").append(i).append("] = ").append(number(position.x)).append("\n")
+                    .append("camera.Transform3DOp.Translate.Y[").append(i).append("] = ").append(number(position.y)).append("\n")
+                    .append("camera.Transform3DOp.Translate.Z[").append(i).append("] = ").append(number(position.z)).append("\n")
+                    .append("camera.Transform3DOp.Rotate.X[").append(i).append("] = ").append(number(-pitches.get(i))).append("\n")
+                    .append("camera.Transform3DOp.Rotate.Y[").append(i).append("] = ").append(number(-yaws.get(i))).append("\n")
+                    .append("camera.Transform3DOp.Rotate.Z[").append(i).append("] = 0\n")
+                    .append("camera.AngleofView[").append(i).append("] = ").append(number(fovs.get(i))).append("\n");
+        }
+        Files.writeString(outputPath, out, StandardCharsets.UTF_8);
+    }
+
+    private void createOutputDirectory(Path outputPath) throws IOException {
+        Path parent = outputPath.getParent();
+        if (parent != null) Files.createDirectories(parent);
+    }
+
+    private Vec3 transformedPosition(int frame) {
+        Vec3 origin = relativeOrigin ? positions.get(0) : Vec3.ZERO;
+        Vec3 position = positions.get(frame).subtract(origin);
+        return new Vec3(-position.x, position.y, -position.z);
+    }
+
+    private double horizontalFovRadians(float verticalFovDegrees) {
+        return 2.0 * Math.atan(Math.tan(Math.toRadians(verticalFovDegrees) / 2.0) * aspectRatio);
+    }
+
+    private static String number(double value) {
+        if (!Double.isFinite(value)) throw new IllegalArgumentException("Camera path contains a non-finite value");
+        return String.format(Locale.ROOT, "%.9f", value);
     }
 
     // === Quaternion conversion ===

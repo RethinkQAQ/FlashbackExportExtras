@@ -26,6 +26,7 @@ import com.moulberry.flashback.combo_options.VideoCodec;
 import com.moulberry.flashback.state.EditorState;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig.ExportMode;
+import com.rethinkqaq.flashbackexportextras.exporting.CameraPathExporter;
 import com.rethinkqaq.flashbackexportextras.exporting.HdrExportState;
 import com.rethinkqaq.flashbackexportextras.gpu.GpuExportBackendFactory;
 import imgui.moulberry90.ImGui;
@@ -268,6 +269,30 @@ public class MixinStartExportWindow {
         }
 
         if (FlashbackExportExtrasConfig.INSTANCE.exportCameraPath) {
+            CameraPathExporter.Format format = FlashbackExportExtrasConfig.INSTANCE.getCameraExportFormat();
+            String formatLabel = switch (format) {
+                case GLB -> I18n.get("flashbackexportextras.camera_format_glb");
+                case USDA -> I18n.get("flashbackexportextras.camera_format_usda");
+                case JSON -> I18n.get("flashbackexportextras.camera_format_json");
+                case AFTER_EFFECTS_JSX -> I18n.get("flashbackexportextras.camera_format_after_effects_jsx");
+                case FUSION_LUA -> I18n.get("flashbackexportextras.camera_format_fusion_lua");
+            };
+            if (ImGui.beginCombo(I18n.get("flashbackexportextras.camera_export_format"), formatLabel)) {
+                for (CameraPathExporter.Format candidate : CameraPathExporter.Format.values()) {
+                    String candidateLabel = switch (candidate) {
+                        case GLB -> I18n.get("flashbackexportextras.camera_format_glb");
+                        case USDA -> I18n.get("flashbackexportextras.camera_format_usda");
+                        case JSON -> I18n.get("flashbackexportextras.camera_format_json");
+                        case AFTER_EFFECTS_JSX -> I18n.get("flashbackexportextras.camera_format_after_effects_jsx");
+                        case FUSION_LUA -> I18n.get("flashbackexportextras.camera_format_fusion_lua");
+                    };
+                    if (ImGui.selectable(candidateLabel, candidate == format)) {
+                        FlashbackExportExtrasConfig.INSTANCE.cameraExportFormat = candidate;
+                        FlashbackExportExtrasConfig.save();
+                    }
+                }
+                ImGui.endCombo();
+            }
             boolean rel = FlashbackExportExtrasConfig.INSTANCE.cameraPathRelativeOrigin;
             if (ImGui.checkbox(I18n.get("flashbackexportextras.relative_camera_path"), rel)) {
                 FlashbackExportExtrasConfig.INSTANCE.cameraPathRelativeOrigin = !rel;
