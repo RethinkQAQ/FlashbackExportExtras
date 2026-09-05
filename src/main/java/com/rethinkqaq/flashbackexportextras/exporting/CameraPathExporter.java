@@ -30,7 +30,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -110,37 +112,7 @@ public class CameraPathExporter {
         return frameCount;
     }
 
-    /**
-     * Applies a 7-point Gaussian kernel to the FOV sequence to eliminate
-     * residual micro-jitter from the interpolation pipeline.
-     * Only affects frames sufficiently far from the ends (3+ frames from edges).
-     */
-    public void applyGaussianSmoothing() {
-        if (fovs.size() < 7) return;
-
-        // 7-point Gaussian kernel (sigma ≈ 1.0)
-        final float[] KERNEL = {0.006f, 0.061f, 0.242f, 0.383f, 0.242f, 0.061f, 0.006f};
-        final int RADIUS = 3;
-
-        float[] smoothed = new float[fovs.size()];
-        for (int i = 0; i < fovs.size(); i++) {
-            if (i < RADIUS || i >= fovs.size() - RADIUS) {
-                smoothed[i] = fovs.get(i);  // keep edge values as-is
-                continue;
-            }
-            float sum = 0f;
-            for (int j = -RADIUS; j <= RADIUS; j++) {
-                sum += fovs.get(i + j) * KERNEL[j + RADIUS];
-            }
-            smoothed[i] = sum;
-        }
-
-        for (int i = 0; i < fovs.size(); i++) {
-            fovs.set(i, smoothed[i]);
-        }
-    }
-
-    public void finish(Path outputPath) throws IOException {
+    private void writeGlb(Path outputPath) throws IOException {
         if (frameCount == 0) return;
 
         Files.createDirectories(outputPath.getParent());
@@ -306,15 +278,35 @@ public class CameraPathExporter {
         }
     }
 
-    /** Writes the sampled path in the requested format. */
+    /**
+     * Writes the sampled path through a sibling temporary file, then publishes
+     * it atomically where the file system supports atomic moves.
+     */
     public void finish(Path outputPath, Format format) throws IOException {
+        if (frameCount == 0) return;
         Format resolvedFormat = format == null ? Format.GLB : format;
-        switch (resolvedFormat) {
-            case GLB -> finish(outputPath);
-            case USDA -> writeUsda(outputPath);
-            case JSON -> writeJson(outputPath);
-            case AFTER_EFFECTS_JSX -> writeAfterEffectsJsx(outputPath);
-            case FUSION_LUA -> writeFusionLua(outputPath);
+        Path absoluteOutput = outputPath.toAbsolutePath().normalize();
+        createOutputDirectory(absoluteOutput);
+        Path temporary = Files.createTempFile(absoluteOutput.getParent(),
+                "." + absoluteOutput.getFileName() + ".", ".tmp");
+        boolean published = false;
+        try {
+            switch (resolvedFormat) {
+                case GLB -> writeGlb(temporary);
+                case USDA -> writeUsda(temporary);
+                case JSON -> writeJson(temporary);
+                case AFTER_EFFECTS_JSX -> writeAfterEffectsJsx(temporary);
+                case FUSION_LUA -> writeFusionLua(temporary);
+            }
+            try {
+                Files.move(temporary, absoluteOutput, StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(temporary, absoluteOutput, StandardCopyOption.REPLACE_EXISTING);
+            }
+            published = true;
+        } finally {
+            if (!published) Files.deleteIfExists(temporary);
         }
     }
 
@@ -381,6 +373,7 @@ public class CameraPathExporter {
         root.addProperty("framesPerSecond", framerate);
         root.addProperty("aspectRatio", aspectRatio);
         root.addProperty("relativeOrigin", relativeOrigin);
+        root.addProperty("positionUnit", "Minecraft block");
         root.addProperty("coordinateSystem", "right-handed Y-up; X/Z converted from Minecraft as GLB/USD");
         root.addProperty("verticalFov", true);
 
@@ -391,7 +384,7 @@ public class CameraPathExporter {
             JsonObject frame = new JsonObject();
             frame.addProperty("frame", i);
             frame.addProperty("time", times.get(i));
-            frame.add("position", v3((float) position.x, (float) position.y, (float) position.z));
+            frame.add("position", vd3(position.x, position.y, position.z));
             frame.add("rotationQuaternion", v4(rotation[0], rotation[1], rotation[2], rotation[3]));
             frame.addProperty("verticalFovDegrees", fovs.get(i));
             frames.add(frame);
@@ -453,18 +446,27 @@ public class CameraPathExporter {
         StringBuilder out = new StringBuilder(2048 + frameCount * 220);
         out.append("-- Flashback Export Extras camera path importer\n")
                 .append("-- Coordinate system: right-handed Y-up, matching the GLB and USDA exports.\n")
+                .append("local fusion = bmd.scriptapp(\"Fusion\")\n")
+                .append("local comp = fusion and fusion.CurrentComp\n")
+                .append("if comp == nil then error(\"Open a Fusion composition before running this script.\") end\n")
+                .append("local exportFps = ").append(number(framerate)).append("\n")
+                .append("local attrs = comp:GetAttrs()\n")
+                .append("local startFrame = attrs.COMPN_GlobalStart or 0\n")
+                .append("local compFps = comp:GetPrefs(\"Comp.FrameFormat.Rate\") or exportFps\n")
+                .append("local frameScale = compFps / exportFps\n")
                 .append("local camera = comp:AddTool(\"Camera3D\", -32768, -32768)\n")
                 .append("camera:SetAttrs({ TOOLS_Name = \"Flashback Camera\" })\n")
-                .append("-- Timeline frame 0 corresponds to the first exported frame.\n");
+                .append("camera.AovType = 0 -- vertical angle of view\n");
         for (int i = 0; i < frameCount; i++) {
             Vec3 position = transformedPosition(i);
-            out.append("camera.Transform3DOp.Translate.X[").append(i).append("] = ").append(number(position.x)).append("\n")
-                    .append("camera.Transform3DOp.Translate.Y[").append(i).append("] = ").append(number(position.y)).append("\n")
-                    .append("camera.Transform3DOp.Translate.Z[").append(i).append("] = ").append(number(position.z)).append("\n")
-                    .append("camera.Transform3DOp.Rotate.X[").append(i).append("] = ").append(number(-pitches.get(i))).append("\n")
-                    .append("camera.Transform3DOp.Rotate.Y[").append(i).append("] = ").append(number(-yaws.get(i))).append("\n")
-                    .append("camera.Transform3DOp.Rotate.Z[").append(i).append("] = 0\n")
-                    .append("camera.AngleofView[").append(i).append("] = ").append(number(fovs.get(i))).append("\n");
+            out.append("local t = startFrame + ").append(i).append(" * frameScale\n")
+                    .append("camera.Transform3DOp.Translate.X[t] = ").append(number(position.x)).append("\n")
+                    .append("camera.Transform3DOp.Translate.Y[t] = ").append(number(position.y)).append("\n")
+                    .append("camera.Transform3DOp.Translate.Z[t] = ").append(number(position.z)).append("\n")
+                    .append("camera.Transform3DOp.Rotate.X[t] = ").append(number(-pitches.get(i))).append("\n")
+                    .append("camera.Transform3DOp.Rotate.Y[t] = ").append(number(-yaws.get(i))).append("\n")
+                    .append("camera.Transform3DOp.Rotate.Z[t] = 0\n")
+                    .append("camera.AoV[t] = ").append(number(fovs.get(i))).append("\n");
         }
         Files.writeString(outputPath, out, StandardCharsets.UTF_8);
     }
@@ -508,6 +510,7 @@ public class CameraPathExporter {
         return p;
     }
     static JsonArray v3(float x, float y, float z) { JsonArray a = new JsonArray(); a.add(x); a.add(y); a.add(z); return a; }
+    static JsonArray vd3(double x, double y, double z) { JsonArray a = new JsonArray(); a.add(x); a.add(y); a.add(z); return a; }
     static JsonArray v4(float x, float y, float z, float w) { JsonArray a = new JsonArray(); a.add(x); a.add(y); a.add(z); a.add(w); return a; }
     static JsonObject bufferView(int b, int off, int len) { JsonObject o = new JsonObject(); o.addProperty("buffer", b); o.addProperty("byteOffset", off); o.addProperty("byteLength", len); return o; }
     static JsonObject accessor(int bv, int off, int cnt, String type, int ct, float min, float max) {

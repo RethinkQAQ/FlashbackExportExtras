@@ -57,12 +57,6 @@ public class DepthCaptureState {
      */
     public static volatile float keyframeTargetFov = 70.0f;
 
-    /**
-     * Previous frame's interpolated FOV, used for client-frame
-     * interpolation between server ticks (via partialClientTick).
-     */
-    public static volatile float previousFov = 70.0f;
-
     /** Camera position captured after renderLevel (MC world space). */
     public static volatile double camX, camY, camZ;
 
@@ -186,7 +180,6 @@ public class DepthCaptureState {
         width = height = 0;
         fovDegrees = 70.0f;
         keyframeTargetFov = 70.0f;
-        previousFov = 70.0f;
         camX = camY = camZ = 0.0;
         camYaw = camPitch = 0.0f;
         depthFar = 1000.0f;

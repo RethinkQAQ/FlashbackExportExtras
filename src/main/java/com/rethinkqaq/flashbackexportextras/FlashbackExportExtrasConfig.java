@@ -31,6 +31,9 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class FlashbackExportExtrasConfig {
 
@@ -120,12 +123,28 @@ public class FlashbackExportExtrasConfig {
                         && object.get("exrUncompressed").getAsBoolean()) {
                     INSTANCE.exrCompression = ExrCompression.NONE;
                 }
-            } catch (IOException e) {
-                FlashbackExportExtras.LOGGER.error("Failed to load config", e);
+            } catch (IOException | RuntimeException e) {
+                Path backup = backupInvalidConfig();
+                FlashbackExportExtras.LOGGER.error(
+                        "Failed to load config; using defaults. Invalid config backup: {}",
+                        backup == null ? "unavailable" : backup, e);
                 INSTANCE = new FlashbackExportExtrasConfig();
             }
         }
         save();
+    }
+
+    private static Path backupInvalidConfig() {
+        if (!Files.exists(CONFIG_PATH)) return null;
+        String timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+                .format(LocalDateTime.now());
+        Path backup = CONFIG_PATH.resolveSibling("flashbackexportextras.invalid-" + timestamp + ".json");
+        try {
+            return Files.copy(CONFIG_PATH, backup, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException backupError) {
+            FlashbackExportExtras.LOGGER.error("Failed to back up invalid config", backupError);
+            return null;
+        }
     }
 
     public static void save() {

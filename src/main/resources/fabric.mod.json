@@ -3,7 +3,7 @@
   "id": "${id}",
   "version": "${version}",
   "name": "${name}",
-  "description": "Adds depth map (OpenEXR) and camera path (GLB) export to Flashback replays",
+  "description": "Adds multilayer OpenEXR, HDR, and camera path export to Flashback replays",
   "authors": ["RethinkQAQ"],
   "contact": {},
   "license": "LGPL-3.0",

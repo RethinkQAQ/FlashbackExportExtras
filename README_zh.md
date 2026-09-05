@@ -14,6 +14,6 @@
 - 导出包含颜色和 `Depth.Z` 通道的多层 OpenEXR。
 - 可导出场景线性 HDR 颜色，用于 OpenEXR 后期处理。
 - 在安装 HDR mod 时可以导出 HDR10 视频。
-- 可以导出摄像机路径。
+- 可以用 GLB、USDA、JSON、JSX 和 Lua 格式导出摄像机路径，供 Blender、After Effects 与 Fusion 使用。
 
 OpenEXR 输出主要用于 Blender、After Effects 等软件进行合成和后期处理。颜色、深度和摄像机路径按照相同的帧编号导出，便于逐帧匹配。

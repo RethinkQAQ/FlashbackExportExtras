@@ -1,6 +1,7 @@
 import org.gradle.language.jvm.tasks.ProcessResources
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.jvm.tasks.Jar
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     // Applies the correct Loom variant for the active Minecraft version.
@@ -116,6 +117,9 @@ dependencies {
     lwjglNativeClassifiers.forEach { classifier ->
         include(dependencies.create("org.lwjgl:lwjgl-tinyexr:$lwjglVersion:$classifier"))
     }
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.13.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 loom {
@@ -177,6 +181,10 @@ if (minecraftCompatibility != null) {
 tasks.withType<Jar>().configureEach {
     from(rootProject.file("LICENSE.txt"))
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
 
 tasks {

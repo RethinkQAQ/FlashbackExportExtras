@@ -55,9 +55,6 @@ public class MixinExportJob {
     private ExportSettings settings;
 
     @Shadow
-    private double currentTickDouble;
-
-    @Shadow
     private void doExport(VideoWriter videoWriter, SaveableFramebufferQueue downloader) {
         throw new AssertionError("Mixin shadow");
     }
@@ -315,15 +312,9 @@ public class MixinExportJob {
     @Unique
     private void flashbackexportextras$recordCameraFrame() {
         if (cameraExporter == null) return;
-
-        double partialClientTick = currentTickDouble - (int) currentTickDouble;
-        float targetFov = DepthCaptureState.keyframeTargetFov;
-        float previousFov = DepthCaptureState.previousFov;
-        float interpolatedFov = (float) (previousFov + (targetFov - previousFov) * partialClientTick);
-
         Vec3 pos = new Vec3(DepthCaptureState.camX, DepthCaptureState.camY, DepthCaptureState.camZ);
-        cameraExporter.recordFrame(pos, DepthCaptureState.camYaw, DepthCaptureState.camPitch, interpolatedFov);
-        DepthCaptureState.previousFov = targetFov;
+        cameraExporter.recordFrame(pos, DepthCaptureState.camYaw, DepthCaptureState.camPitch,
+                DepthCaptureState.keyframeTargetFov);
     }
 
     // === Redirect VideoWriter.encode ===
@@ -367,26 +358,23 @@ public class MixinExportJob {
     private void flashbackexportextras$finishExportSession(boolean completed) {
         if (!flashbackexportextras_sessionActive) return;
         FlashbackExportExtras.LOGGER.info("Export session cleanup started: completed={}", completed);
+        RuntimeException cameraExportFailure = null;
         if (completed && cameraExporter != null && cameraExporter.getFrameCount() > 0) {
             try {
-            cameraExporter.applyGaussianSmoothing();
-            Path videoPath = settings.output();
-            String videoName = videoPath.getFileName().toString();
-            int dot = videoName.lastIndexOf('.');
-            String base = dot > 0 ? videoName.substring(0, dot) : videoName;
-            CameraPathExporter.Format cameraFormat = FlashbackExportExtrasConfig.INSTANCE.getCameraExportFormat();
-            Path cameraPath = isExrMode
-                    ? videoPath.resolve(cameraFormat.fileName())
-                    : videoPath.resolveSibling(base + "_" + cameraFormat.fileStem() + "." + cameraFormat.extension());
-            try {
+                Path videoPath = settings.output();
+                String videoName = videoPath.getFileName().toString();
+                int dot = videoName.lastIndexOf('.');
+                String base = dot > 0 ? videoName.substring(0, dot) : videoName;
+                CameraPathExporter.Format cameraFormat = FlashbackExportExtrasConfig.INSTANCE.getCameraExportFormat();
+                Path cameraPath = isExrMode
+                        ? videoPath.resolve(cameraFormat.fileName())
+                        : videoPath.resolveSibling(base + "_" + cameraFormat.fileStem() + "." + cameraFormat.extension());
                 cameraExporter.finish(cameraPath, cameraFormat);
                 FlashbackExportExtras.LOGGER.info("Camera path ({}) : {} frames → {}", cameraFormat,
                         cameraExporter.getFrameCount(), cameraPath);
-            } catch (IOException e) {
-                FlashbackExportExtras.LOGGER.error("Failed to write camera path {}", cameraFormat, e);
-            }
-            } catch (Throwable e) {
+            } catch (Exception e) {
                 FlashbackExportExtras.LOGGER.error("Failed to finalize camera path", e);
+                cameraExportFailure = new IllegalStateException("Failed to export selected camera path", e);
             }
         }
 
@@ -419,6 +407,7 @@ public class MixinExportJob {
         /*?}*/
         flashbackexportextras_sessionActive = false;
         FlashbackExportExtras.LOGGER.info("Export session cleanup completed");
+        if (cameraExportFailure != null) throw cameraExportFailure;
     }
 
     @Unique

@@ -14,6 +14,6 @@ English | [中文](README_zh.md)
 - Export multi-layer OpenEXR files containing color and `Depth.Z` channels.
 - Export scene-linear HDR color for OpenEXR post-processing.
 - Export HDR10 video when HDR Mod is installed.
-- Export camera paths in GLB format.
+- Export camera paths for Blender, After Effects, and Fusion in GLB, USDA, JSON, JSX, and Lua formats.
 
 OpenEXR output is mainly intended for compositing and post-processing in Blender, After Effects, and other software. Color, depth, and camera path data are exported with matching frame numbers for per-frame alignment.

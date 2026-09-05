@@ -611,6 +611,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     }
 
     private void logDepthReadback(java.nio.FloatBuffer raw, java.nio.FloatBuffer converted, int bufferIndex) {
+        if (!Boolean.getBoolean("flashbackexportextras.debugDepth")) return;
         int frame = depthDebugFrame++;
         if (frame >= 3 && frame % 30 != 0) return;
 
