@@ -44,7 +44,7 @@ jobs:
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           curseforge-id: 1653334
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
-          files-primary: artifacts/${{ matrix.path }}/*.jar
+          files: artifacts/${{ matrix.path }}/*.jar
           name: ${{ github.event.release.name || github.ref_name }} for Minecraft ${{ matrix.minecraft_version }}
           version: ${{ matrix.platform_version }}
           version-type: ${{ matrix.version_type }}
