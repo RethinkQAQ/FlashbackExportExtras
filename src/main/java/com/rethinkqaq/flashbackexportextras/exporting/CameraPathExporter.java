@@ -327,6 +327,10 @@ public class CameraPathExporter {
                 .append("    timeCodesPerSecond = ").append(number(framerate)).append("\n")
                 .append("    startTimeCode = 0\n")
                 .append("    endTimeCode = ").append(frameCount - 1).append("\n")
+                // Minecraft defines one block as one metre. Explicitly set
+                // the USD stage unit so Blender does not apply USD's default
+                // centimetre-scale interpretation to camera translations.
+                .append("    metersPerUnit = 1.0\n")
                 .append("    upAxis = \"Y\"\n")
                 .append(")\n\n")
                 .append("def Camera \"FlashbackCamera\"\n{\n")

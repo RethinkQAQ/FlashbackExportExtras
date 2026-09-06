@@ -62,6 +62,16 @@ class CameraPathExporterTest {
         }
     }
 
+    @Test
+    void usdaDeclaresMinecraftBlocksAsMetres() throws Exception {
+        CameraPathExporter exporter = sampleExporter();
+        Path output = directory.resolve("camera.usda");
+        exporter.finish(output, CameraPathExporter.Format.USDA);
+
+        String usda = Files.readString(output);
+        assertTrue(usda.contains("metersPerUnit = 1.0"));
+    }
+
     private static CameraPathExporter sampleExporter() {
         CameraPathExporter exporter = new CameraPathExporter(16.0f / 9.0f, 60.0, true);
         exporter.recordFrame(new Vec3(10.0, 70.0, 20.0), 0.0f, 0.0f, 70.0f);
