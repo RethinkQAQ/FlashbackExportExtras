@@ -74,7 +74,11 @@ jobs:
           echo "BASE_VERSION=$base_version" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
           echo "EFFECTIVE_VERSION=$effective_version" >> "$GITHUB_ENV"
-          echo "artifact_name=mod-jars" >> "$GITHUB_OUTPUT"
+          if [[ "${{ inputs.release }}" == "true" ]]; then
+            echo "artifact_name=release-staging" >> "$GITHUB_OUTPUT"
+          else
+            echo "artifact_name=mod-jars" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build all targets
         run: |
@@ -100,6 +104,8 @@ jobs:
           effective_version = os.environ["EFFECTIVE_VERSION"]
           artifacts = Path("artifacts")
           artifacts.mkdir(exist_ok=True)
+          mod_jars = Path("mod-jars")
+          mod_jars.mkdir(exist_ok=True)
           matrix = []
 
           def read_properties(path):
@@ -129,12 +135,14 @@ jobs:
               if not jars:
                   raise SystemExit(f"No distributable JAR found in {source_dir}")
 
+              target_dir = artifacts / minecraft_version
+              target_dir.mkdir(parents=True, exist_ok=True)
               for jar in jars:
-                  shutil.copy2(jar, artifacts / jar.name)
+                  shutil.copy2(jar, target_dir / jar.name)
+                  shutil.copy2(jar, mod_jars / jar.name)
 
               matrix.append({
-                  "path": jar.name,
-                  "jar": jar.name,
+                  "path": minecraft_version,
                   "minecraft_version": minecraft_version,
                   "game_versions": game_versions,
                   "loader": "fabric",
@@ -155,7 +163,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
-          path: artifacts/*.jar
+          path: mod-jars/*.jar
           if-no-files-found: error
 
       - name: Upload release staging artifact
@@ -163,5 +171,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.version.outputs.artifact_name }}
-          path: artifacts/*.jar
+          path: artifacts/
           if-no-files-found: error

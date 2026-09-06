@@ -44,12 +44,13 @@ jobs:
           modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
           curseforge-id: 1653334
           curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
-          files-primary: artifacts/${{ matrix.jar }}
+          files-primary: artifacts/${{ matrix.path }}/*.jar
           name: ${{ github.event.release.name || github.ref_name }} for Minecraft ${{ matrix.minecraft_version }}
           version: ${{ matrix.platform_version }}
           version-type: ${{ matrix.version_type }}
           loaders: ${{ matrix.loader }}
           game-versions: ${{ matrix.game_versions }}
+          game-version-filter: any
           changelog: ${{ github.event.release.body }}
 
   upload-github-release:
@@ -67,5 +68,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release upload "${{ github.event.release.tag_name }}"
-          artifacts/*.jar --clobber --repo "${{ github.repository }}"
+          find artifacts -type f -name '*.jar' -print0 |
+          xargs -0 -r gh release upload "${{ github.event.release.tag_name }}"
+          --clobber --repo "${{ github.repository }}"
