@@ -124,7 +124,7 @@ jobs:
               publish_versions = properties.get("mod.mc_publish", "").strip()
               if not publish_versions:
                   raise SystemExit(f"Missing mod.mc_publish in {properties_path}")
-              game_versions = ",".join(
+              game_versions = "\n".join(
                   version for version in re.split(r"[,\s]+", publish_versions) if version
               )
               source_dir = Path("build/libs") / effective_version / minecraft_version

@@ -1,7 +1,7 @@
 {
   "flashbackexportextras.export_format": "输出格式",
   "flashbackexportextras.format_video": "视频",
-  "flashbackexportextras.format_exr": "OpenEXR 序列 (深度)",
+  "flashbackexportextras.format_exr": "多层 OpenEXR 序列",
   "flashbackexportextras.export_camera_path": "导出相机路径",
   "flashbackexportextras.export_camera_path_tooltip": "在渲染完成时一并导出相机动画。\n包含位置、旋转、FOV 关键帧。",
   "flashbackexportextras.camera_export_format": "相机路径格式",

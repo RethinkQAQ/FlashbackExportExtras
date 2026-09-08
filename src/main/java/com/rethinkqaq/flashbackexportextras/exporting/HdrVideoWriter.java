@@ -25,6 +25,9 @@ package com.rethinkqaq.flashbackexportextras.exporting;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.exporting.VideoWriter;
+/*? if >=26.1 {*/
+/*import com.moulberry.flashback.exporting.ImageFrame;
+*//*?}*/
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import org.lwjgl.system.MemoryUtil;
 
@@ -141,10 +144,23 @@ public class HdrVideoWriter implements VideoWriter {
         return frameCount;
     }
 
+    /*? if >=26.1 {*/
+    /*@Override
+    public void encode(ImageFrame frame) {
+        // HDR frames arrive through addHdrFrame(); release the normal SDR
+        // frame that Flashback hands to the writer.
+        frame.close();
+    }
+    *//*?}*/
+
+    /*? if <26.1 {*/
     @Override
     public void encode(NativeImage image, FloatBuffer audioBuffer) {
-        // HDR frames arrive through addHdrFrame()
+        // HDR frames arrive through addHdrFrame(). The redirect normally owns
+        // and closes this image, but keep the legacy interface implementation.
+        image.close();
     }
+    //?}
 
     @Override
     /*? if >=1.21.5 {*/

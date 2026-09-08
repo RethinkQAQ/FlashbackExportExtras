@@ -23,12 +23,15 @@ package com.rethinkqaq.flashbackexportextras.mixins;
 
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.exporting.HdrExportState;
+import me.fallenbreath.conditionalmixin.api.annotation.Condition;
+import me.fallenbreath.conditionalmixin.api.annotation.Restriction;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+@Restriction(require = @Condition("hdr_mod"))
 @Mixin(targets = "xyz.rrtt217.HDRMod.config.HDRModConfig")
 public class MixinHDRModConfig {
     @Shadow public boolean enableHDR;

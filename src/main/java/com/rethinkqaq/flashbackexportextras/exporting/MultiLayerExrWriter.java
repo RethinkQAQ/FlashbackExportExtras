@@ -168,19 +168,19 @@ public class MultiLayerExrWriter implements AutoCloseable {
      * Writes one multi-layer EXR frame.
      * Fills pre-allocated buffers with new data, then calls tinyexr.
      */
-    public void writeFrame(NativeImage colorImage, FloatBuffer depthBuffer, int frameNumber,
-                           float zNear, float zFar) throws IOException {
+    public void writeFrame(NativeImage colorImage, DepthCaptureState.DepthFrame depthFrame,
+                           int frameNumber) throws IOException {
         fillSdrColor(colorImage);
-        fillDepth(depthBuffer, zNear, zFar);
+        fillDepth(depthFrame);
         writeExr(frameNumber);
         frameCount++;
     }
 
     /** Writes scene-linear Rec.709 RGBA16F color with the matching depth frame. */
-    public void writeHdrFrame(ByteBuffer rgba16f, FloatBuffer depthBuffer, int frameNumber,
-                              float zNear, float zFar) throws IOException {
+    public void writeHdrFrame(ByteBuffer rgba16f, DepthCaptureState.DepthFrame depthFrame,
+                              int frameNumber) throws IOException {
         fillSceneLinearHdrColor(rgba16f);
-        fillDepth(depthBuffer, zNear, zFar);
+        fillDepth(depthFrame);
         writeExr(frameNumber);
         frameCount++;
     }
@@ -250,12 +250,16 @@ public class MultiLayerExrWriter implements AutoCloseable {
         return Float.intBitsToFloat(sign | (floatExponent << 23) | (mantissa << 13));
     }
 
-    private void fillDepth(FloatBuffer depthBuffer, float zNear, float zFar) {
+    private void fillDepth(DepthCaptureState.DepthFrame depthFrame) {
+        if (depthFrame == null || depthFrame.data == null) {
+            throw new IllegalArgumentException("Missing depth frame");
+        }
+        FloatBuffer depthBuffer = depthFrame.data;
 
         // --- Pass 2: Fill depth (Y-flipped from GL bottom-up) ---
-        if (linearizeDepth) {
-            float znear = zNear;
-            float zfar = zFar;
+        if (linearizeDepth && depthFrame.encoding != DepthCaptureState.Encoding.LINEAR_WORLD_METERS) {
+            float znear = depthFrame.zNear;
+            float zfar = depthFrame.zFar;
             float twoZnZf = 2.0f * znear * zfar;
             float zfMinusZn = zfar - znear;
             float zfPlusZn = zfar + znear;
@@ -265,6 +269,9 @@ public class MultiLayerExrWriter implements AutoCloseable {
                 int srcY = height - 1 - y;
                 for (int x = 0; x < width; x++, dstIdx++) {
                     float depth = depthBuffer.get(srcY * width + x);
+                    if (depthFrame.encoding == DepthCaptureState.Encoding.REVERSED_NDC) {
+                        depth = 1.0f - depth;
+                    }
                     depth = twoZnZf / (zfPlusZn - (2.0f * depth - 1.0f) * zfMinusZn);
                     zBuf.put(dstIdx, depth);
                 }
@@ -274,7 +281,11 @@ public class MultiLayerExrWriter implements AutoCloseable {
                 int dstIdx = y * width;
                 int srcY = height - 1 - y;
                 for (int x = 0; x < width; x++, dstIdx++) {
-                    zBuf.put(dstIdx, depthBuffer.get(srcY * width + x));
+                    float depth = depthBuffer.get(srcY * width + x);
+                    if (depthFrame.encoding == DepthCaptureState.Encoding.REVERSED_NDC) {
+                        depth = 1.0f - depth;
+                    }
+                    zBuf.put(dstIdx, depth);
                 }
             }
         }

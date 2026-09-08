@@ -48,6 +48,14 @@ public final class SceneLinearHdrCaptureState {
         QUEUE.fail(throwable);
     }
 
+    public static void throwIfFailed() {
+        QUEUE.throwIfFailed();
+    }
+
+    public static void verifyComplete(long expectedFrameCount, long consumedFrameCount) {
+        QUEUE.verifyComplete(expectedFrameCount, consumedFrameCount);
+    }
+
     public static void release(ByteBuffer data) {
         if (data != null) MemoryUtil.memFree(data);
     }

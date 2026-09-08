@@ -22,6 +22,8 @@
 package com.rethinkqaq.flashbackexportextras.mixins;
 
 import com.rethinkqaq.flashbackexportextras.utils.Dummy;
+import me.fallenbreath.conditionalmixin.api.annotation.Condition;
+import me.fallenbreath.conditionalmixin.api.annotation.Restriction;
 import org.spongepowered.asm.mixin.Mixin;
 //? if mc_26_1_2 {
 import com.rethinkqaq.flashbackexportextras.gpu.HdrModColorTransformAccess;
@@ -29,6 +31,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 //?}
 
+@Restriction(require = @Condition("hdr_mod"))
 @Mixin(
         remap = false,
         //? if mc_26_1_2 {

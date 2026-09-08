@@ -50,7 +50,7 @@ jobs:
           version-type: ${{ matrix.version_type }}
           loaders: ${{ matrix.loader }}
           game-versions: ${{ matrix.game_versions }}
-          game-version-filter: any
+          game-version-filter: none
           changelog: ${{ github.event.release.body }}
 
   upload-github-release:

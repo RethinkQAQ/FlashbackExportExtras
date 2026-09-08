@@ -42,6 +42,11 @@ public final class SceneLinearHdrPboCapture implements AutoCloseable {
         readback.flush();
     }
 
+    /** Returns false while an in-flight PBO still owns GPU resources. */
+    public boolean release() {
+        return readback.release();
+    }
+
     @Override
     public void close() {
         readback.close();

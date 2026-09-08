@@ -21,7 +21,7 @@
  */
 package com.rethinkqaq.flashbackexportextras.exporting;
 
-//? if legacy_hdr {
+//? if <26.1 {
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import org.lwjgl.opengl.GL11;
@@ -39,7 +39,9 @@ final class OpenGlFrameReadback implements AutoCloseable {
     private static final long WAIT_NANOS = 1_000_000_000L;
 
     private final String label;
+    private final int readFormat;
     private final int pixelType;
+    private final int bytesPerPixel;
     private final BiConsumer<Long, ByteBuffer> frameConsumer;
     private final int[] pboIds = new int[BUFFER_COUNT];
     private final long[] fences = new long[BUFFER_COUNT];
@@ -49,8 +51,15 @@ final class OpenGlFrameReadback implements AutoCloseable {
     private int writeIndex;
 
     OpenGlFrameReadback(String label, int pixelType, BiConsumer<Long, ByteBuffer> frameConsumer) {
+        this(label, GL11.GL_RGBA, pixelType, 8, frameConsumer);
+    }
+
+    OpenGlFrameReadback(String label, int readFormat, int pixelType, int bytesPerPixel,
+                       BiConsumer<Long, ByteBuffer> frameConsumer) {
         this.label = label;
+        this.readFormat = readFormat;
         this.pixelType = pixelType;
+        this.bytesPerPixel = bytesPerPixel;
         this.frameConsumer = frameConsumer;
     }
 
@@ -69,7 +78,7 @@ final class OpenGlFrameReadback implements AutoCloseable {
         try {
             GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pboIds[index]);
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
-            GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, pixelType, 0L);
+            GL11.glGetTexImage(GL11.GL_TEXTURE_2D, 0, readFormat, pixelType, 0L);
             frameIds[index] = frameId;
             fences[index] = GL32.glFenceSync(GL32.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         } finally {
@@ -110,7 +119,7 @@ final class OpenGlFrameReadback implements AutoCloseable {
         ByteBuffer copy = null;
         try {
             GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, pboIds[index]);
-            long byteSize = (long) width * height * 8L;
+            long byteSize = (long) width * height * bytesPerPixel;
             ByteBuffer mapped = GL15.glMapBuffer(GL21.GL_PIXEL_PACK_BUFFER, GL15.GL_READ_ONLY,
                     byteSize, null);
             if (mapped == null) throw new IllegalStateException("Failed to map " + label + " PBO");
@@ -135,10 +144,13 @@ final class OpenGlFrameReadback implements AutoCloseable {
 
     private void ensureResources(int newWidth, int newHeight) {
         if (width == newWidth && height == newHeight && pboIds[0] != 0) return;
-        close();
+        if (!release()) {
+            throw new IllegalStateException("Cannot resize " + label
+                    + " while a GPU readback is still in flight");
+        }
         width = newWidth;
         height = newHeight;
-        long size = (long) width * height * 8L;
+        long size = (long) width * height * bytesPerPixel;
         int oldPbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
         try {
             for (int i = 0; i < BUFFER_COUNT; i++) {
@@ -154,19 +166,19 @@ final class OpenGlFrameReadback implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!release()) {
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
+                    "Deferring close of {} until all GPU fences complete", label);
+        }
+    }
+
+    boolean release() {
         RenderSystem.assertOnRenderThread();
+        collectReady(0L);
+        for (long fence : fences) {
+            if (fence != 0L) return false;
+        }
         for (int i = 0; i < BUFFER_COUNT; i++) {
-            if (fences[i] != 0L) {
-                int waitResult = GL32.glClientWaitSync(
-                        fences[i], GL32.GL_SYNC_FLUSH_COMMANDS_BIT, WAIT_NANOS);
-                if (waitResult != GL32.GL_ALREADY_SIGNALED
-                        && waitResult != GL32.GL_CONDITION_SATISFIED) {
-                    com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
-                            "Closing {} resources before frame {} fence completed", label, frameIds[i]);
-                }
-                GL32.glDeleteSync(fences[i]);
-                fences[i] = 0L;
-            }
             if (pboIds[i] != 0) {
                 GL15.glDeleteBuffers(pboIds[i]);
                 pboIds[i] = 0;
@@ -175,6 +187,7 @@ final class OpenGlFrameReadback implements AutoCloseable {
         }
         width = height = -1;
         writeIndex = 0;
+        return true;
     }
 }
 

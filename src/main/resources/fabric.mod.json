@@ -24,7 +24,7 @@
     "fabricloader": ">=${loader}",
     "fabric-api": "*",
     "minecraft": "${minecraft}",
-    "flashback": "*"
+    "flashback": "${flashback}"
   },
   "suggests": {
     "hdr_mod": "*"

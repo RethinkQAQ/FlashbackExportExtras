@@ -25,6 +25,9 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.combo_options.VideoContainer;
 import com.moulberry.flashback.exporting.*;
+/*? if >=26.1 {*/
+/*import com.moulberry.flashback.exporting.ImageFrame;
+*//*?}*/
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig.ExportMode;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
@@ -35,6 +38,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+/*? if >=26.1 {*/
+/*import org.spongepowered.asm.mixin.injection.Coerce;
+*//*?}*/
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -80,6 +86,14 @@ public class MixinExportJob {
     @Unique
     private boolean flashbackexportextras_sessionActive;
 
+    /**
+     * The next EXR color download must consume the depth frame reserved for
+     * the same Flashback output frame.  This counter is local to the export
+     * session and deliberately independent from the asynchronous queue size.
+     */
+    @Unique
+    private long flashbackexportextras_nextDepthColorFrameId;
+
     /*? if hdr {*/
     @Unique
     private HdrVideoWriter hdrWriterRef;
@@ -90,11 +104,28 @@ public class MixinExportJob {
 
     // === Redirect createVideoWriter ===
 
+    /*? if >=26.1 {*/
+    /*@Redirect(method = "run",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/ExportJob;createVideoWriter(Lcom/moulberry/flashback/exporting/ExportSettings;Lcom/moulberry/flashback/exporting/ExportJob$TempFileInfo;)Lcom/moulberry/flashback/exporting/VideoWriter;"),
+            remap = false)
+    private VideoWriter redirectCreateWriter(ExportSettings settings, @Coerce Object tempFileInfo) throws IOException {
+        String tempFileName = tempFileInfo == null ? null
+                : ((ExportJobTempFileInfoAccess) tempFileInfo).flashbackexportextras$getName();
+        return flashbackexportextras$createWriter(settings, tempFileName);
+    }
+    *//*?} else {*/
     @Redirect(method = "run",
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/ExportJob;createVideoWriter(Lcom/moulberry/flashback/exporting/ExportSettings;Ljava/lang/String;)Lcom/moulberry/flashback/exporting/VideoWriter;"),
             remap = false)
     private VideoWriter redirectCreateWriter(ExportSettings settings, String tempFileName) throws IOException {
+        return flashbackexportextras$createWriter(settings, tempFileName);
+    }
+    /*?}*/
+
+    @Unique
+    private VideoWriter flashbackexportextras$createWriter(ExportSettings settings, String tempFileName) throws IOException {
         FlashbackExportExtras.LOGGER.info(
                 "ExportJob creating writer: output={}, container={}, resolution={}x{}, temp={}",
                 settings.output(), settings.container(), settings.resolutionX(), settings.resolutionY(), tempFileName);
@@ -113,8 +144,9 @@ public class MixinExportJob {
             if (outputName.isEmpty() || outputName.equals(".") || outputName.equals("..")) {
                 outputName = "export";
             }
-            Path outputDir = settings.output().resolve(outputName).normalize();
-            if (!outputDir.getParent().equals(settings.output().toAbsolutePath().normalize())) {
+            Path outputRoot = settings.output().toAbsolutePath().normalize();
+            Path outputDir = outputRoot.resolve(outputName).normalize();
+            if (!outputDir.getParent().equals(outputRoot)) {
                 throw new IOException("Invalid EXR output name: " + configuredName);
             }
             FlashbackExportExtras.LOGGER.info("OpenEXR frame output directory: {}", outputDir);
@@ -166,6 +198,7 @@ public class MixinExportJob {
         FlashbackExportExtras.LOGGER.info("ExportJob doExport started: writer={}",
                 videoWriter == null ? "null" : videoWriter.getClass().getName());
         flashbackexportextras_sessionActive = true;
+        flashbackexportextras_nextDepthColorFrameId = 0L;
         if (isExrMode) {
             com.moulberry.flashback.configuration.FlashbackConfigV1 config =
                     com.moulberry.flashback.Flashback.getConfig();
@@ -209,7 +242,23 @@ public class MixinExportJob {
         }
     }
 
-    // === Capture depth from the same RenderTarget as this color download ===
+    // === Reserve a depth frame before Flashback renders it ===
+
+    @Redirect(method = "doExport",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/SaveableFramebufferQueue;take()Lcom/moulberry/flashback/exporting/SaveableFramebuffer;"),
+            remap = false)
+    private SaveableFramebuffer flashbackexportextras$reserveDepthFrame(
+            SaveableFramebufferQueue downloader) {
+        SaveableFramebuffer framebuffer = downloader.take();
+        if (isExrMode) {
+            long frameId = DepthCaptureState.reserveExportFrameId();
+            FlashbackExportExtras.LOGGER.debug("Reserved depth capture frame {}", frameId);
+        }
+        return framebuffer;
+    }
+
+    // === Start color download after the matching depth capture ===
 
     @Redirect(method = "doExport",
             at = @At(value = "INVOKE",
@@ -220,10 +269,12 @@ public class MixinExportJob {
                                                         SaveableFramebuffer framebuffer,
                                                         boolean flag) {
         if (isExrMode) {
-            long frameId = DepthCaptureState.nextExportFrameId();
-            GameRendererDepthAccess renderer =
-                    (GameRendererDepthAccess) (Object) net.minecraft.client.Minecraft.getInstance().gameRenderer;
-            renderer.flashbackexportextras_captureDepthForFrame(target, frameId);
+            long frameId = DepthCaptureState.submittedCaptureFrameId();
+            if (frameId != flashbackexportextras_nextDepthColorFrameId
+                    || !DepthCaptureState.wasCaptureSubmitted(frameId)) {
+                throw new IllegalStateException("No matching depth capture completed before color download: "
+                        + "expected=" + flashbackexportextras_nextDepthColorFrameId + ", actual=" + frameId);
+            }
             if (isExrSceneLinearHdr) {
                 GpuExportBackendFactory.get().captureSceneLinearHdr(
                         target, target.width, target.height, frameId);
@@ -231,6 +282,9 @@ public class MixinExportJob {
         }
         flashbackexportextras$captureHdrBeforeDownload(target);
         downloader.startDownload(target, framebuffer, flag);
+        if (isExrMode) {
+            flashbackexportextras_nextDepthColorFrameId++;
+        }
         flashbackexportextras$recordCameraFrame();
     }
 
@@ -264,7 +318,7 @@ public class MixinExportJob {
         /*?}*/
     }
 
-    /*? if >=1.21.5 {*/
+    //? if >=1.21.5 {
     /*@Inject(method = "doExport",
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;finish(Ljava/util/function/Consumer;)V"),
@@ -274,8 +328,8 @@ public class MixinExportJob {
                                                      CallbackInfo ci) {
         flashbackexportextrasFlushGpuReadback();
     }
-    *//*?} else {*/
-    /*@Inject(method = "doExport",
+    *///?} else {
+    @Inject(method = "doExport",
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;finish()V"),
             remap = false)
@@ -284,7 +338,7 @@ public class MixinExportJob {
                                                      CallbackInfo ci) {
         flashbackexportextrasFlushGpuReadback();
     }
-    *//*?}*/
+    //?}
 
     @Unique
     private void flashbackexportextrasFlushGpuReadback() {
@@ -298,12 +352,6 @@ public class MixinExportJob {
             HdrVideoCaptureState.verifyComplete(flashbackexportextras_hdrCaptureFrameCount, written);
         }
         /*?}*/
-        if (isExrMode) {
-            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-            com.rethinkqaq.flashbackexportextras.exporting.GameRendererDepthAccess renderer =
-                    (com.rethinkqaq.flashbackexportextras.exporting.GameRendererDepthAccess) (Object) mc.gameRenderer;
-            renderer.flashbackexportextras_flushDepthPbo();
-        }
         FlashbackExportExtras.LOGGER.info("Export GPU flush completed");
     }
 
@@ -319,23 +367,36 @@ public class MixinExportJob {
 
     // === Redirect VideoWriter.encode ===
 
+    /*? if >=26.1 {*/
+    /*@Redirect(method = "submitDownloadedFrames",
+            at = @At(value = "INVOKE",
+                    target = "Lcom/moulberry/flashback/exporting/VideoWriter;encode(Lcom/moulberry/flashback/exporting/ImageFrame;)V"),
+            remap = false)
+    private void onVideoEncode(VideoWriter videoWriter, ImageFrame frame) {
+        if (isHdrMode) {
+            // HDR frames arrive through the asynchronous GPU readback stream;
+            // release Flashback's normal SDR frame immediately.
+            frame.close();
+        } else {
+            videoWriter.encode(frame);
+        }
+    }
+    *//*?}*/
+
+    //? if <26.1 {
     @Redirect(method = "submitDownloadedFrames",
             at = @At(value = "INVOKE",
                     target = "Lcom/moulberry/flashback/exporting/VideoWriter;encode(Lcom/mojang/blaze3d/platform/NativeImage;Ljava/nio/FloatBuffer;)V"),
             remap = false)
     private void onVideoEncode(VideoWriter videoWriter, NativeImage image, FloatBuffer audioBuffer) {
-        /*? if hdr {*/
         if (isHdrMode) {
             // Normal pipeline's NativeImage is unused in HDR mode.
-            // Explicitly free to prevent native memory accumulation (GC finalizer is too slow).
             image.close();
         } else {
             videoWriter.encode(image, audioBuffer);
         }
-        /*?} else {*/
-        /*videoWriter.encode(image, audioBuffer);
-        *//*?}*/
     }
+    //?}
 
     // === Export session finalization ===
 
@@ -402,6 +463,7 @@ public class MixinExportJob {
         isExrMode = false;
         isExrSceneLinearHdr = false;
         isHdrMode = false;
+        flashbackexportextras_nextDepthColorFrameId = 0L;
         /*? if hdr {*/
         hdrWriterRef = null;
         /*?}*/

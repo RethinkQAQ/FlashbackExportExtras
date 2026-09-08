@@ -24,9 +24,13 @@ package com.rethinkqaq.flashbackexportextras.gpu;
 //? if <26.1 {
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.rethinkqaq.flashbackexportextras.exporting.DepthCaptureState;
+import com.rethinkqaq.flashbackexportextras.exporting.DepthFrameCapture;
 
 /** Transitional backend for pre-26.1 versions. */
 public final class LegacyOpenGlExportBackend implements GpuExportBackend {
+    private DepthFrameCapture depthCapture;
     /*? if hdr {*/
     private com.rethinkqaq.flashbackexportextras.exporting.HdrColorTransformShader hdrShader;
     private com.rethinkqaq.flashbackexportextras.exporting.HdrFrameCapture hdrCapture;
@@ -50,7 +54,21 @@ public final class LegacyOpenGlExportBackend implements GpuExportBackend {
         /*return false;
         *//*?}*/
     }
-    @Override public void captureDepth(RenderTarget target, int width, int height, float depthFar) {}
+    @Override
+    public void captureDepth(RenderTarget target, int width, int height, float depthFar, long frameId) {
+        if (target == null || !target.useDepth) {
+            throw new IllegalStateException("Legacy depth target is unavailable for frame " + frameId);
+        }
+        if (depthCapture == null) depthCapture = new DepthFrameCapture();
+        int textureId = depthTextureId(target);
+        if (textureId <= 0) {
+            throw new IllegalStateException("Legacy depth texture is unavailable for frame " + frameId);
+        }
+        depthCapture.issueReadback(textureId, width, height, frameId,
+                0.05f, depthFar, DepthCaptureState.Encoding.STANDARD_NDC,
+                "Minecraft legacy depth");
+    }
+
     @Override
     public void captureHdr(RenderTarget target, int width, int height,
                            float peakBrightness, long frameId) {
@@ -89,6 +107,7 @@ public final class LegacyOpenGlExportBackend implements GpuExportBackend {
     }
 
     @Override public void endFrame() {
+        if (depthCapture != null) depthCapture.collectReady(0L);
         /*? if hdr {*/
         if (hdrCapture != null) hdrCapture.collectReady(0L);
         if (sceneLinearCapture != null) sceneLinearCapture.collectReady(0L);
@@ -96,13 +115,26 @@ public final class LegacyOpenGlExportBackend implements GpuExportBackend {
     }
 
     @Override public void flush() {
+        if (depthCapture != null) depthCapture.flush();
         /*? if hdr {*/
         if (hdrCapture != null) hdrCapture.flush();
         if (sceneLinearCapture != null) sceneLinearCapture.flush();
         /*?}*/
     }
 
+    @Override public boolean releaseOnRenderThread() {
+        if (!RenderSystem.isOnRenderThread()) return false;
+        if (depthCapture != null && !depthCapture.release()) return false;
+        /*? if hdr {*/
+        if (hdrCapture != null && !hdrCapture.release()) return false;
+        if (sceneLinearCapture != null && !sceneLinearCapture.release()) return false;
+        /*?}*/
+        close();
+        return true;
+    }
+
     @Override public void close() {
+        if (depthCapture != null) depthCapture.close();
         /*? if hdr {*/
         if (hdrCapture != null) hdrCapture.close();
         if (sceneLinearCapture != null) sceneLinearCapture.close();
@@ -112,6 +144,7 @@ public final class LegacyOpenGlExportBackend implements GpuExportBackend {
         sceneLinearCapture = null;
         hdrShader = null;
         sceneLinearShader = null;
+        depthCapture = null;
         hdrReadbackFailed = false;
         sceneLinearReadbackFailed = false;
         /*?}*/
@@ -126,5 +159,13 @@ public final class LegacyOpenGlExportBackend implements GpuExportBackend {
         /*?}*/
     }
     /*?}*/
+
+    private static int depthTextureId(RenderTarget target) {
+        /*? if >=1.21.5 {*/
+        /*return ((com.mojang.blaze3d.opengl.GlTexture) target.getDepthTexture()).glId();
+        *//*?} else {*/
+        return target.getDepthTextureId();
+        /*?}*/
+    }
 }
 //?}

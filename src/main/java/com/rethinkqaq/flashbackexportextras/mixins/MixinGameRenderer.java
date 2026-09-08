@@ -27,15 +27,6 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.textures.GpuTexture;
 *//*?}*/
-/*? if >=26.1 {*/
-/*// 26.x must not compile the legacy OpenGL depth path.
-*//*?} else {*/
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL15;
-import org.lwjgl.opengl.GL21;
-import org.lwjgl.opengl.GL30;
-import java.nio.FloatBuffer;
-/*?}*/
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.exporting.DepthCaptureState;
 import com.rethinkqaq.flashbackexportextras.gpu.GpuExportBackendFactory;
@@ -56,7 +47,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /** Captures camera metadata and delegates version-specific depth work to the GPU backend. */
 @Mixin(value = GameRenderer.class, remap = false)
-public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.exporting.GameRendererDepthAccess {
+public class MixinGameRenderer {
     /*? if >=26.2 {*/
     /*@Shadow @Final private GameRenderState gameRenderState;
     *//*?}*/
@@ -69,7 +60,8 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
     private void flashbackexportextras$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
-        if (!DepthCaptureState.active) encoder.clearDepthTexture(texture, depth);
+        flashbackexportextras$capturePendingDepthBeforeClear(encoder);
+        encoder.clearDepthTexture(texture, depth);
     }
 
     @Redirect(method = "render",
@@ -77,7 +69,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
     private void flashbackexportextras$preserveDepthDuringGui(CommandEncoder encoder, GpuTexture texture, double depth) {
-        if (!DepthCaptureState.active) encoder.clearDepthTexture(texture, depth);
+        encoder.clearDepthTexture(texture, depth);
     }
     *//*?} elif >=26.1 {*/
     /*@Redirect(method = "renderLevel",
@@ -85,13 +77,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
     private void flashbackexportextras$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
-        if (DepthCaptureState.active) {
-            RenderTarget target = Minecraft.getInstance().getMainRenderTarget();
-            if (target != null) {
-                GpuExportBackendFactory.get().snapshotDepth(
-                        target, DepthCaptureState.width, DepthCaptureState.height, DepthCaptureState.depthFar);
-            }
-        }
+        flashbackexportextras$capturePendingDepthBeforeClear(encoder);
         encoder.clearDepthTexture(texture, depth);
     }
     *//*?} elif >=1.21.5 {*/
@@ -100,7 +86,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
                     target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"),
             remap = false)
     private void flashbackexportextras$redirectClearDepthTexture(CommandEncoder encoder, GpuTexture texture, double depth) {
-        flashbackexportextras_snapshotWorldDepthBeforeClear();
+        flashbackexportextras$capturePendingDepthBeforeClear(encoder);
         encoder.clearDepthTexture(texture, depth);
     }
     *//*?} elif >=1.21.4 {*/
@@ -108,7 +94,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
             at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(I)V"),
             remap = false)
     private void flashbackexportextras$redirectClearInRenderLevel(int mask) {
-        if ((mask & 256) != 0) flashbackexportextras_snapshotWorldDepthBeforeClear();
+        if ((mask & 256) != 0) flashbackexportextras$capturePendingDepthBeforeClear(null);
         com.mojang.blaze3d.systems.RenderSystem.clear(mask);
     }
     *//*?} else {*/
@@ -116,7 +102,7 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
             at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(IZ)V"),
             remap = false)
     private void flashbackexportextras$redirectClearInRenderLevel(int mask, boolean getError) {
-        if ((mask & 256) != 0) flashbackexportextras_snapshotWorldDepthBeforeClear();
+        if ((mask & 256) != 0) flashbackexportextras$capturePendingDepthBeforeClear(null);
         com.mojang.blaze3d.systems.RenderSystem.clear(mask, getError);
     }
     /*?}*/
@@ -160,81 +146,51 @@ public class MixinGameRenderer implements com.rethinkqaq.flashbackexportextras.e
         }
     }
 
-    @Override
-    public void flashbackexportextras_captureDepthForFrame(RenderTarget target, long frameId) {
-        if (!DepthCaptureState.active || target == null) return;
-        /*? if >=26.2 {*/
-        /*CameraRenderState cameraState = gameRenderState.levelRenderState.cameraRenderState;
-        if (cameraState != null && Float.isFinite(cameraState.depthFar) && cameraState.depthFar > 0.05f) {
-            DepthCaptureState.depthFar = cameraState.depthFar;
-        }
-        *//*?}*/
-        DepthCaptureState.requestedFrameId = frameId;
-        try {
-            /*? if <26.1 {*/
-            FloatBuffer snapshot = DepthCaptureState.takePendingWorldDepth();
-            if (snapshot == null) {
-                FlashbackExportExtras.LOGGER.warn("No world-depth snapshot available for EXR frame {}", frameId);
-                return;
-            }
-            DepthCaptureState.submit(new DepthCaptureState.DepthFrame(frameId, snapshot));
-            /*?} else {*/
-            GpuExportBackendFactory.get().captureDepth(
-                    target, DepthCaptureState.width, DepthCaptureState.height, DepthCaptureState.depthFar);
-            /*?}*/
-        } finally {
-            DepthCaptureState.requestedFrameId = -1L;
-        }
-    }
-
     @Unique
-    private void flashbackexportextras_snapshotWorldDepthBeforeClear() {
-        /*? if >=26.2 {*/
-        /*// 26.2 follows ReplayMod's strategy: suppress the clear and copy the
-        // main RenderTarget depth beside the matching colour download.
-        *//*?} elif >=26.1 {*/
-        /*// 26.1.x copies the matching RenderTarget depth through the Blaze3D
-        // staging-buffer path when ExportJob starts the colour download.
-        *//*?} else {*/
+    private void flashbackexportextras$capturePendingDepthBeforeClear(Object clearEncoder) {
         if (!DepthCaptureState.active) return;
+        long frameId = DepthCaptureState.pendingCaptureFrameId();
+        if (frameId < 0L) return;
         Minecraft mc = Minecraft.getInstance();
-        RenderTarget target = mc.getMainRenderTarget();
-        if (target == null || !target.useDepth) return;
-        /*? if >=1.21.5 {*/
-        /*int depthTextureId = ((GlTexture) target.getDepthTexture()).glId();
+        /*? if >=26.2 {*/
+        /*RenderTarget target = mc.gameRenderer.mainRenderTarget();
         *//*?} else {*/
-        int depthTextureId = target.getDepthTextureId();
+        RenderTarget target = mc.getMainRenderTarget();
         /*?}*/
-        if (depthTextureId <= 0) return;
-
-        FloatBuffer copy = DepthCaptureState.acquireBuffer();
-        int oldTexture = GL11.glGetInteger(GL30.GL_TEXTURE_BINDING_2D);
-        int oldPbo = GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
-        boolean captured = false;
-        try {
-            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, 0);
-            GL30.glBindTexture(GL30.GL_TEXTURE_2D, depthTextureId);
-            GL30.glGetTexImage(GL30.GL_TEXTURE_2D, 0,
-                    GL30.GL_DEPTH_COMPONENT, GL30.GL_FLOAT, copy);
-            copy.rewind();
-            captured = true;
-            DepthCaptureState.replacePendingWorldDepth(copy);
-        } finally {
-            GL30.glBindTexture(GL30.GL_TEXTURE_2D, oldTexture);
-            GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, oldPbo);
-            if (!captured) DepthCaptureState.releaseBuffer(copy);
+        if (target == null || !target.useDepth) {
+            DepthCaptureState.failPendingCapture(
+                    new IllegalStateException("Main render target has no depth attachment"));
+            throw new IllegalStateException("Cannot capture depth for export frame " + frameId);
         }
-        /*?}*/
-    }
-
-    /** Legacy PBO capture was removed; all remaining GPU queues flush through the backend. */
-    @Override
-    public void flashbackexportextras_flushDepthPbo() {
+        try {
+            /*? if >=26.2 {*/
+            /*CameraRenderState cameraState = gameRenderState.levelRenderState.cameraRenderState;
+            if (cameraState != null && Float.isFinite(cameraState.depthFar) && cameraState.depthFar > 0.05f) {
+                DepthCaptureState.depthFar = cameraState.depthFar;
+            }
+            *//*?}*/
+            // Iris depthtex2 is a pre-hand snapshot.  Iris calls beginHand
+            // before translucent world rendering, so it is not a complete
+            // scene depth source. Always capture Minecraft's final main
+            // RenderTarget immediately before its world-depth clear instead.
+            GpuExportBackendFactory.get().captureDepthBeforeClear(clearEncoder,
+                    target, DepthCaptureState.width, DepthCaptureState.height,
+                    DepthCaptureState.depthFar, frameId);
+            DepthCaptureState.markCaptureSubmitted(frameId);
+        } catch (RuntimeException e) {
+            DepthCaptureState.failPendingCapture(e);
+            throw e;
+        }
     }
 
     @Inject(method = "render", at = @At("HEAD"), remap = false)
     private void flashbackexportextras$releasePendingGpuResources(CallbackInfo ci) {
         DepthCaptureState.beginRenderFrame();
         GpuExportBackendFactory.releasePendingOnRenderThread();
+    }
+
+    @Inject(method = "render", at = @At("TAIL"), remap = false)
+    private void flashbackexportextras$collectGpuReadbacks(CallbackInfo ci) {
+        GpuExportBackendFactory.endFrameOnRenderThread();
     }
 }

@@ -41,6 +41,11 @@ public final class GpuExportBackendFactory {
         backend = null;
     }
 
+    /** Polls completed GPU copies without creating a backend when no export used one. */
+    public static synchronized void endFrameOnRenderThread() {
+        if (backend != null) backend.endFrame();
+    }
+
     /** Called only from a render-thread safe point. */
     public static synchronized void releasePendingOnRenderThread() {
         while (!pendingRelease.isEmpty()) {

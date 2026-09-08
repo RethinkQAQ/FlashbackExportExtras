@@ -29,10 +29,19 @@ public interface GpuExportBackend extends AutoCloseable {
 
     default boolean supportsSceneLinearHdr() { return false; }
 
-    /** Captures depth before the game clears the main depth attachment. */
-    default void snapshotDepth(RenderTarget target, int width, int height, float depthFar) {}
+    /** Captures the numbered frame before the game clears the main depth attachment. */
+    void captureDepth(RenderTarget target, int width, int height, float depthFar, long frameId);
 
-    void captureDepth(RenderTarget target, int width, int height, float depthFar);
+    /**
+     * Queues a depth capture on the encoder which is about to clear the source
+     * attachment. Modern renderers must preserve this ordering: a separately
+     * submitted encoder may otherwise run after the clear and read only its
+     * uniform clear value. Older backends intentionally ignore the encoder.
+     */
+    default void captureDepthBeforeClear(Object clearEncoder, RenderTarget target, int width, int height,
+                                         float depthFar, long frameId) {
+        captureDepth(target, width, height, depthFar, frameId);
+    }
 
     /** Queues an RGBA16 BT.2020/PQ capture for the matching export frame. */
     default void captureHdr(RenderTarget target, int width, int height,

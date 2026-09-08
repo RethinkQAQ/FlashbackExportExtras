@@ -23,6 +23,9 @@ package com.rethinkqaq.flashbackexportextras.exporting;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.moulberry.flashback.exporting.VideoWriter;
+/*? if >=26.1 {*/
+/*import com.moulberry.flashback.exporting.ImageFrame;
+*//*?}*/
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtras;
 import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig.ExrCompression;
@@ -47,7 +50,7 @@ public class ExrVideoWriter implements VideoWriter {
 
     private static final int QUEUE_CAPACITY = 8;
     private static final int WRITER_COUNT = 2;
-    private static final FramePacket STOP = new FramePacket(-1, null, null, null, 0.05f, 1000.0f);
+    private static final FramePacket STOP = new FramePacket(-1, null, null, null);
 
     private final MultiLayerExrWriter[] exrWriters;
     private final ArrayBlockingQueue<FramePacket> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
@@ -89,8 +92,26 @@ public class ExrVideoWriter implements VideoWriter {
                 outputDir, WRITER_COUNT, QUEUE_CAPACITY, sceneLinearHdr, compression);
     }
 
+    /*? if >=26.1 {*/
+    /*@Override
+    public void encode(ImageFrame frame) {
+        NativeImage colorImage = frame.toOpaqueRgbaU8NativeImage();
+        try {
+            encodeNative(colorImage, frame.audioBuffer);
+        } finally {
+            frame.close();
+        }
+    }
+    *//*?}*/
+
+    /*? if <26.1 {*/
     @Override
     public void encode(NativeImage colorImage, FloatBuffer audioBuffer) {
+        encodeNative(colorImage, audioBuffer);
+    }
+    //?}
+
+    private void encodeNative(NativeImage colorImage, FloatBuffer audioBuffer) {
         if (!accepting) {
             colorImage.close();
             throw new IllegalStateException("EXR writer is already finished");
@@ -120,9 +141,8 @@ public class ExrVideoWriter implements VideoWriter {
             depthFrame = DepthCaptureState.poll(nextFrameId);
 
             NativeImage colorImage = pendingColors.removeFirst();
-            FramePacket packet = new FramePacket((int) nextFrameId++, colorImage, depthFrame.data,
-                    hdrFrame == null ? null : hdrFrame.data,
-                    depthFrame.zNear, depthFrame.zFar);
+            FramePacket packet = new FramePacket((int) nextFrameId++, colorImage, depthFrame,
+                    hdrFrame == null ? null : hdrFrame.data);
             try {
                 if (!queue.offer(packet, 30, TimeUnit.SECONDS)) {
                     packet.close();
@@ -152,10 +172,9 @@ public class ExrVideoWriter implements VideoWriter {
                 try {
                     if (packet.sceneLinearHdr != null) {
                         exrWriters[workerIndex].writeHdrFrame(packet.sceneLinearHdr, packet.depth,
-                                packet.frameId, packet.zNear, packet.zFar);
+                                packet.frameId);
                     } else {
-                        exrWriters[workerIndex].writeFrame(packet.color, packet.depth, packet.frameId,
-                                packet.zNear, packet.zFar);
+                        exrWriters[workerIndex].writeFrame(packet.color, packet.depth, packet.frameId);
                     }
                 } catch (Throwable t) {
                     writerFailure.compareAndSet(null, t);
@@ -182,6 +201,7 @@ public class ExrVideoWriter implements VideoWriter {
         accepting = false;
         FlashbackExportExtras.LOGGER.info("EXR finish: draining pending pairs");
         try {
+            if (sceneLinearHdr) SceneLinearHdrCaptureState.throwIfFailed();
             drainPairs();
             if (!pendingColors.isEmpty()) {
                 writerFailure.compareAndSet(null, new IllegalStateException(
@@ -194,6 +214,9 @@ public class ExrVideoWriter implements VideoWriter {
                 writerFailure.compareAndSet(null, new IllegalStateException(
                         "Unmatched EXR data after frame " + nextFrameId
                                 + ": depth=" + remainingDepth + ", hdr=" + remainingHdr));
+            }
+            if (sceneLinearHdr) {
+                SceneLinearHdrCaptureState.verifyComplete(nextFrameId, nextFrameId);
             }
             discardPendingColors();
             FlashbackExportExtras.LOGGER.info("EXR finish: queue={}, sending {} stop signals",
@@ -222,6 +245,7 @@ public class ExrVideoWriter implements VideoWriter {
                 if (thread != null) thread.interrupt();
             }
         } finally {
+            discardPendingColors();
             FramePacket packet;
             while ((packet = queue.poll()) != null) {
                 if (packet != STOP) packet.close();
@@ -261,24 +285,20 @@ public class ExrVideoWriter implements VideoWriter {
     private static final class FramePacket {
         private final int frameId;
         private final NativeImage color;
-        private final FloatBuffer depth;
+        private final DepthCaptureState.DepthFrame depth;
         private final ByteBuffer sceneLinearHdr;
-        private final float zNear;
-        private final float zFar;
 
-        private FramePacket(int frameId, NativeImage color, FloatBuffer depth, ByteBuffer sceneLinearHdr,
-                            float zNear, float zFar) {
+        private FramePacket(int frameId, NativeImage color, DepthCaptureState.DepthFrame depth,
+                            ByteBuffer sceneLinearHdr) {
             this.frameId = frameId;
             this.color = color;
             this.depth = depth;
             this.sceneLinearHdr = sceneLinearHdr;
-            this.zNear = zNear;
-            this.zFar = zFar;
         }
 
         private void close() {
             if (color != null) color.close();
-            if (depth != null) DepthCaptureState.releaseBuffer(depth);
+            if (depth != null) DepthCaptureState.releaseBuffer(depth.data);
             if (sceneLinearHdr != null) SceneLinearHdrCaptureState.release(sceneLinearHdr);
         }
     }

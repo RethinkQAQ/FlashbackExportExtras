@@ -31,6 +31,7 @@ repositories {
     mavenCentral()
     maven("https://api.modrinth.com/maven") { name = "Modrinth" }
     maven("https://jitpack.io") { name = "JitPack" }
+    maven("https://maven.fallenbreath.me/releases") { name = "FallenBreath" }
     maven("https://maven.bawnorton.com/releases") { name = "Bawnorton" }
     maven("https://maven.shedaniel.me/")
 }
@@ -47,6 +48,12 @@ dependencies {
     val fabricApiVersion = property("deps.fabric_api") as String
     modImplementation("net.fabricmc.fabric-api:fabric-api:$fabricApiVersion")
     modImplementation("maven.modrinth:flashback:${property("deps.flashback")}-fabric,${sc.current.version}")
+
+    // Runtime restrictions for optional compatibility Mixins. Bundle the
+    // small library so end users do not need to install another mod.
+    val conditionalMixin = "me.fallenbreath:conditional-mixin-fabric:0.6.4"
+    modImplementation(conditionalMixin)
+    include(conditionalMixin)
 
     // Optional compatibility targets: available to the compiler and local
     // development runtime, but never declared as production requirements.
@@ -154,7 +161,8 @@ if (minecraftCompatibility != null) {
         "name" to (findProperty("mod.name") as String),
         "version" to effectiveModVersion,
         "minecraft" to minecraftCompatibility,
-        "loader" to (findProperty("deps.fabric_loader") as String)
+        "loader" to (findProperty("deps.fabric_loader") as String),
+        "flashback" to (findProperty("req.flashback") as String)
     )
     val mixinResourceProperties = mapOf(
         "java" to "JAVA_${requiredJava.majorVersion}"

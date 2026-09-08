@@ -1,7 +1,7 @@
 {
   "flashbackexportextras.export_format": "Output Format",
   "flashbackexportextras.format_video": "Video",
-  "flashbackexportextras.format_exr": "OpenEXR Sequence (Depth)",
+  "flashbackexportextras.format_exr": "Multilayer OpenEXR Sequence",
   "flashbackexportextras.export_camera_path": "Export Camera Path",
   "flashbackexportextras.export_camera_path_tooltip": "Export camera animation alongside the render.\nIncludes position, rotation, and FOV keyframes.",
   "flashbackexportextras.camera_export_format": "Camera path format",
@@ -12,7 +12,7 @@
   "flashbackexportextras.camera_format_fusion_lua": "DaVinci Fusion Lua (import script)",
   "flashbackexportextras.relative_camera_path": "Relative Origin",
   "flashbackexportextras.relative_camera_path_tooltip": "Shift the camera path so the first frame is at (0,0,0).\nEasier to position assets in Blender.",
-  "flashbackexportextras.exr_info": "Exports multi-layer OpenEXR frames with color and depth.\nAnti-aliasing is disabled for depth accuracy.",
+  "flashbackexportextras.exr_info": "Exports multilayer OpenEXR frames with color and depth.\nAnti-aliasing is disabled for depth accuracy.",
   "flashbackexportextras.exr_output_name": "EXR sequence name",
   "flashbackexportextras.exr_output_name_tooltip": "Frames are written to a single-level subfolder with this name. Leave blank to generate a timestamped name automatically.",
   "flashbackexportextras.linearize_depth": "Linearize Depth (World-Space)",

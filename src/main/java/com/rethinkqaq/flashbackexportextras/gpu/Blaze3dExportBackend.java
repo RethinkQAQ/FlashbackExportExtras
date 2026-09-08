@@ -23,28 +23,31 @@ package com.rethinkqaq.flashbackexportextras.gpu;
 
 //? if >=26.1 {
 
-/*import com.mojang.blaze3d.pipeline.RenderTarget;
-/^? if >=26.2 {^/
-/^import com.mojang.blaze3d.pipeline.BindGroupLayout;
+/*
+
+import com.mojang.blaze3d.pipeline.RenderTarget;
+//? if >=26.2 {
+import com.mojang.blaze3d.pipeline.BindGroupLayout;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.PrimitiveTopology;
 import com.mojang.blaze3d.shaders.UniformType;
-^//^?}^/
+//?}
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.GpuFence;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.GpuTexture;
-/^? if >=26.2 {^/
-/^import com.mojang.blaze3d.textures.GpuTextureView;
+//? if >=26.2 {
+import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.systems.RenderPass;
 import net.minecraft.resources.ResourceLocation;
-^//^?}^/
+//?}
 import com.rethinkqaq.flashbackexportextras.exporting.DepthCaptureState;
+import com.rethinkqaq.flashbackexportextras.FlashbackExportExtrasConfig;
 import com.rethinkqaq.flashbackexportextras.exporting.HdrExportState;
 import com.rethinkqaq.flashbackexportextras.exporting.HdrVideoCaptureState;
 import com.rethinkqaq.flashbackexportextras.exporting.SceneLinearHdrCaptureState;
@@ -53,29 +56,38 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import org.lwjgl.system.MemoryUtil;
 
-/^* Blaze3D boundary for 26.x; resource implementation is version-specific. ^/
+// Blaze3D boundary for 26.x; resource implementation is version-specific.
 public final class Blaze3dExportBackend implements GpuExportBackend {
     private static final int BUFFER_COUNT = 3;
     private final GpuBuffer[] depthBuffers = new GpuBuffer[BUFFER_COUNT];
     private final GpuFence[] depthFences = new GpuFence[BUFFER_COUNT];
     private final long[] depthFrameIds = new long[BUFFER_COUNT];
-    private final boolean[] depthReversed = new boolean[BUFFER_COUNT];
+    private final float[] depthNear = new float[BUFFER_COUNT];
+    private final float[] depthFarValues = new float[BUFFER_COUNT];
+    private final DepthCaptureState.Encoding[] depthEncodings = new DepthCaptureState.Encoding[BUFFER_COUNT];
     private final String[] depthSources = new String[BUFFER_COUNT];
-    /^? if <26.2 {^/
-    /*private int pendingWorldDepthIndex = -1;
+    //? if <26.2 {
     private HdrMod26_1ExportBridge hdrModBridge;
-    ^//^?}^/
+    //?}
     private int writeIndex;
     private int width;
     private int height;
     private boolean depthReadbackFailed;
     private int depthDebugFrame;
-    /^? if >=26.2 {^/
-    /^private GpuTexture hdrCopyTexture;
+    //? if >=26.2 {
+    private GpuTexture hdrCopyTexture;
     private GpuTextureView hdrCopyView;
     private RenderPipeline hdrCopyPipeline;
-    private GpuBuffer hdrReadbackBuffer;
+    private final GpuBuffer[] hdrReadbackBuffers = new GpuBuffer[BUFFER_COUNT];
+    private final GpuFence[] hdrReadbackFences = new GpuFence[BUFFER_COUNT];
+    private final long[] hdrReadbackFrameIds = new long[BUFFER_COUNT];
     private GpuBuffer hdrUniformBuffer;
+    private int hdrWriteIndex;
+    private int hdrWidth;
+    private int hdrHeight;
+    private boolean hdrReadbackFailed;
+    private long hdrStagingWaitCount;
+    private long hdrLongestWaitNanos;
     private GpuTexture sceneLinearTexture;
     private GpuTextureView sceneLinearView;
     private RenderPipeline sceneLinearPipeline;
@@ -86,139 +98,154 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
     private int sceneLinearWidth;
     private int sceneLinearHeight;
     private boolean sceneLinearReadbackFailed;
-    ^//^?}^/
+    private GpuTexture depthCopyTexture;
+    private GpuTextureView depthCopyView;
+    private RenderPipeline depthCopyPipeline;
+    private GpuBuffer depthUniformBuffer;
+    //?}
     @Override public boolean supportsHdr() {
-        /^? if >=26.2 {^/
-        /^return true;
-        ^//^?} else {^/
+        //? if >=26.2 {
+        return true;
+        //?}
+        //? if <26.2 {
         return HdrExportState.isHdrModLoaded();
-        /^?}^/
+        //?}
     }
     @Override public boolean supportsSceneLinearHdr() {
-        /^? if >=26.2 {^/
-        /^return true;
-        ^//^?} else {^/
+        //? if >=26.2 {
+        return true;
+        //?}
+        //? if <26.2 {
         return HdrExportState.isHdrModLoaded();
-        /^?}^/
+        //?}
     }
     @Override
-    public void snapshotDepth(RenderTarget target, int width, int height, float depthFar) {
-        /^? if <26.2 {^/
-        /*if (target == null || !target.useDepth || target.getDepthTexture() == null
-                || depthReadbackFailed || pendingWorldDepthIndex >= 0) return;
-        try {
-            RenderSystem.assertOnRenderThread();
-            if (!ensureDepthBuffers(width, height)) return;
-            int index = writeIndex;
-            if (depthFences[index] != null) {
-                collectDepth(index, 1_000_000_000L);
-                if (depthFences[index] != null) return;
-            }
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            encoder.copyTextureToBuffer(target.getDepthTexture(), depthBuffers[index], 0L, () -> {}, 0);
-            depthFrameIds[index] = -1L;
-            depthReversed[index] = false;
-            depthSources[index] = "Minecraft 26.1 pre-clear depth";
-            depthFences[index] = encoder.createFence();
-            pendingWorldDepthIndex = index;
-            writeIndex = (writeIndex + 1) % BUFFER_COUNT;
-        } catch (RuntimeException e) {
-            depthReadbackFailed = true;
-            closeDepthBuffers();
-            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
-                    "26.1 pre-clear depth snapshot failed", e);
-        }
-        ^//^?}^/
+    public void captureDepth(RenderTarget target, int width, int height, float depthFar, long frameId) {
+        captureDepthInternal(null, target, width, height, depthFar, frameId);
     }
 
     @Override
-    public void captureDepth(RenderTarget target, int width, int height, float depthFar) {
-        /^? if >=26.2 {^/
-        /^if (target == null || !target.useDepth || target.getDepthTexture() == null || depthReadbackFailed) return;
+    public void captureDepthBeforeClear(Object clearEncoder, RenderTarget target, int width, int height,
+                                        float depthFar, long frameId) {
+        captureDepthInternal(clearEncoder instanceof CommandEncoder encoder ? encoder : null,
+                target, width, height, depthFar, frameId);
+    }
+
+    private void captureDepthInternal(CommandEncoder clearEncoder, RenderTarget target,
+                                      int width, int height, float depthFar, long frameId) {
+        if (target == null || !target.useDepth || depthReadbackFailed) {
+            throw new IllegalStateException("Blaze3D depth target is unavailable for frame " + frameId);
+        }
         try {
             RenderSystem.assertOnRenderThread();
-            if (!ensureDepthBuffers(width, height)) return;
+            if (!ensureDepthBuffers(width, height)) {
+                throw new IllegalStateException("Unable to allocate depth readback buffers");
+            }
             collectDepth();
             int index = writeIndex;
             if (depthFences[index] != null) {
-                collectDepth(index, 1_000_000_000L);
-                if (depthFences[index] != null) {
-                    com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
-                            "Depth GPU readback buffer {} is still busy; skipping frame {}",
-                            index, DepthCaptureState.captureFrameId());
-                    return;
+                if (!collectDepth(index, 1_000_000_000L)) {
+                    throw new IllegalStateException("Timed out waiting for depth frame "
+                            + depthFrameIds[index]);
                 }
             }
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            encoder.copyTextureToBuffer(target.getDepthTexture(), depthBuffers[index], 0L, () -> {}, 0);
-            depthFrameIds[index] = DepthCaptureState.captureFrameId();
-            // Minecraft 26.2 normally renders with reversed-Z. Iris keeps the
-            // shaderpack-facing main depth in the standard OpenGL convention.
-            // The optional Iris Mixin marks only frames where a shaderpack
-            // pipeline actually ran, so merely installing Iris changes nothing.
-            depthReversed[index] = !DepthCaptureState.irisShaderPackRenderedThisFrame;
-            depthSources[index] = depthReversed[index]
-                    ? "Minecraft main depth (reversed-Z)"
-                    : "Iris shaderpack main depth (standard-Z)";
-            depthFences[index] = encoder.createFence();
-            encoder.submit();
-            collectDepth(index, 1_000_000_000L);
-            writeIndex = (writeIndex + 1) % BUFFER_COUNT;
-        } catch (RuntimeException e) {
-            depthReadbackFailed = true;
-            closeDepthBuffers();
-            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
-                    "Blaze3D direct depth readback failed; continuing without depth", e);
-        }
-        ^//^?} else {^/
-        if (target == null || !target.useDepth || target.getDepthTexture() == null) return;
-        if (depthReadbackFailed) return;
-        try {
-            RenderSystem.assertOnRenderThread();
-            if (!ensureDepthBuffers(width, height)) return;
-            /^? if <26.2 {^/
-            /*if (pendingWorldDepthIndex >= 0) {
-                int index = pendingWorldDepthIndex;
-                pendingWorldDepthIndex = -1;
-                depthFrameIds[index] = DepthCaptureState.captureFrameId();
-                collectDepth(index, 1_000_000_000L);
-                if (depthFences[index] != null) {
-                    com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.warn(
-                            "26.1 pre-clear depth readback did not complete for frame {}",
-                            depthFrameIds[index]);
-                }
-                return;
-            }
-            ^//^?}^/
-            collectDepth();
-            int index = writeIndex;
-            if (depthFences[index] != null) return;
+
+            CommandEncoder encoder = clearEncoder != null
+                    ? clearEncoder : RenderSystem.getDevice().createCommandEncoder();
+            boolean ownsEncoder = clearEncoder == null;
+            //? if >=26.2 {
             GpuTexture texture = target.getDepthTexture();
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+            GpuTextureView textureView = target.getDepthTextureView();
+            if (texture == null || textureView == null) {
+                throw new IllegalStateException("Missing 26.2 depth texture view");
+            }
+            boolean reversed = !com.rethinkqaq.flashbackexportextras.exporting.IrisDepthCaptureState
+                    .isShaderPackPipelineActive();
+            captureDepth26_2(encoder, texture, textureView, width, height, depthFar, frameId, index,
+                    reversed, reversed ? "Minecraft 26.2 reversed-Z depth"
+                            : "Iris shaderpack main depth (standard-Z)");
+            if (ownsEncoder) encoder.submit();
+            //?}
+            //? if <26.2 {
+            GpuTexture texture = target.getDepthTexture();
+            if (texture == null) throw new IllegalStateException("Missing 26.1 depth texture");
             encoder.copyTextureToBuffer(texture, depthBuffers[index], 0L, () -> {}, 0);
-            depthFrameIds[index] = DepthCaptureState.captureFrameId();
-            depthReversed[index] = false;
-            depthSources[index] = "Minecraft 26.1 main depth (standard-Z)";
+            depthFrameIds[index] = frameId;
+            depthNear[index] = 0.05f;
+            depthFarValues[index] = depthFar;
+            depthEncodings[index] = DepthCaptureState.Encoding.STANDARD_NDC;
+            depthSources[index] = "Minecraft 26.1 depth";
             depthFences[index] = encoder.createFence();
-            collectDepth(index, 1_000_000_000L);
+            //? if >=26.2 {
+            encoder.submit();
+            //?}
+            //?}
             writeIndex = (writeIndex + 1) % BUFFER_COUNT;
         } catch (RuntimeException e) {
             depthReadbackFailed = true;
             closeDepthBuffers();
             com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
-                    "Blaze3D depth readback unavailable; continuing without depth", e);
+                    "Blaze3D depth readback failed for frame " + frameId, e);
+            throw e;
         }
-        /^?}^/
     }
+
+    //? if >=26.2 {
+    private void captureDepth26_2(CommandEncoder encoder, GpuTexture sourceTexture, GpuTextureView sourceView,
+                                    int captureWidth, int captureHeight, float depthFar,
+                                    long frameId, int index, boolean reversed, String source) {
+        if (sourceTexture == null || sourceView == null) {
+            throw new IllegalStateException("Missing source depth texture");
+        }
+        ensureDepthTarget(captureWidth, captureHeight);
+        boolean linearize = FlashbackExportExtrasConfig.INSTANCE.depthLinearizeWorldSpace;
+        ByteBuffer parameters = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
+        parameters.putFloat(0.05f).putFloat(depthFar)
+                .putFloat(reversed ? 1.0f : 0.0f)
+                .putFloat(linearize ? 1.0f : 0.0f).flip();
+        encoder.writeToBuffer(depthUniformBuffer.slice(), parameters);
+        try (RenderPass pass = encoder.createRenderPass(
+                () -> "Flashback Export Extras depth transform", depthCopyView,
+                java.util.Optional.empty())) {
+            pass.setPipeline(depthCopyPipeline);
+            pass.bindTexture("InDepth", sourceView,
+                    RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
+            pass.setUniform("DepthParameters", depthUniformBuffer);
+            pass.draw(3, 1, 0, 0);
+        }
+        encoder.copyTextureToBuffer(depthCopyTexture, depthBuffers[index], 0L, () -> {}, 0);
+        depthFrameIds[index] = frameId;
+        depthNear[index] = 0.05f;
+        depthFarValues[index] = depthFar;
+        depthEncodings[index] = linearize
+                ? DepthCaptureState.Encoding.LINEAR_WORLD_METERS
+                : DepthCaptureState.Encoding.STANDARD_NDC;
+        depthSources[index] = source;
+        depthFences[index] = encoder.createFence();
+    }
+    //?}
 
     @Override
     public void captureHdr(RenderTarget target, int width, int height,
                            float peakBrightness, long frameId) {
-        /^? if >=26.2 {^/
-        /^if (target == null || target.getColorTexture() == null || target.getColorTextureView() == null) return;
+        //? if >=26.2 {
+        if (target == null || target.getColorTexture() == null || target.getColorTextureView() == null
+                || hdrReadbackFailed) return;
         try {
             RenderSystem.assertOnRenderThread();
             ensureHdrTarget(width, height);
+            collectHdrReady(0L);
+            int index = hdrWriteIndex;
+            if (hdrReadbackFences[index] != null) {
+                long waitStarted = System.nanoTime();
+                boolean complete = collectHdr(index, 1_000_000_000L);
+                hdrStagingWaitCount++;
+                hdrLongestWaitNanos = Math.max(hdrLongestWaitNanos, System.nanoTime() - waitStarted);
+                if (!complete) {
+                    throw new IllegalStateException("Timed out waiting for HDR10 frame "
+                            + hdrReadbackFrameIds[index]);
+                }
+            }
             ByteBuffer parameters = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
             parameters.putFloat(peakBrightness).putFloat(0.0f).putFloat(0.0f).putFloat(0.0f).flip();
 
@@ -232,35 +259,19 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
                 pass.setUniform("HdrParameters", hdrUniformBuffer);
                 pass.draw(3, 1, 0, 0);
             }
-            encoder.copyTextureToBuffer(hdrCopyTexture, hdrReadbackBuffer, 0L, () -> {}, 0);
-            GpuFence fence = encoder.createFence();
-            try {
-                encoder.submit();
-                if (!fence.awaitCompletion(1_000_000_000L)) {
-                    throw new IllegalStateException("HDR GPU readback did not complete in time for frame " + frameId);
-                }
-                try (GpuBufferSlice.MappedView mapped = hdrReadbackBuffer.slice().map(true, false)) {
-                    ByteBuffer source = mapped.data().duplicate();
-                    source.rewind();
-                    ByteBuffer result = MemoryUtil.memAlloc(width * height * 8);
-                    try {
-                        result.put(source);
-                        result.rewind();
-                        HdrVideoCaptureState.submit(frameId, result);
-                        result = null;
-                    } finally {
-                        if (result != null) MemoryUtil.memFree(result);
-                    }
-                }
-            } finally {
-                fence.close();
-            }
+            encoder.copyTextureToBuffer(hdrCopyTexture, hdrReadbackBuffers[index], 0L, () -> {}, 0);
+            hdrReadbackFrameIds[index] = frameId;
+            hdrReadbackFences[index] = encoder.createFence();
+            encoder.submit();
+            hdrWriteIndex = (hdrWriteIndex + 1) % BUFFER_COUNT;
         } catch (RuntimeException e) {
+            hdrReadbackFailed = true;
             HdrVideoCaptureState.fail(e);
             com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "Blaze3D HDR capture failed for frame " + frameId, e);
         }
-        ^//^?} else {^/
+        //?}
+        //? if <26.2 {
         if (target == null || target.getColorTexture() == null || target.getColorTextureView() == null) return;
         try {
             if (hdrModBridge == null) hdrModBridge = new HdrMod26_1ExportBridge();
@@ -270,13 +281,13 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "26.1 HDR capture failed for frame " + frameId, e);
         }
-        /^?}^/
+        //?}
     }
 
     @Override
     public void captureSceneLinearHdr(RenderTarget target, int width, int height, long frameId) {
-        /^? if >=26.2 {^/
-        /^if (target == null || target.getColorTexture() == null
+        //? if >=26.2 {
+        if (target == null || target.getColorTexture() == null
                 || target.getColorTextureView() == null || sceneLinearReadbackFailed) return;
         try {
             RenderSystem.assertOnRenderThread();
@@ -310,7 +321,8 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "Blaze3D scene-linear HDR capture failed for frame " + frameId, e);
         }
-        ^//^?} else {^/
+        //?}
+        //? if <26.2 {
         if (target == null || target.getColorTexture() == null || target.getColorTextureView() == null) return;
         try {
             if (hdrModBridge == null) hdrModBridge = new HdrMod26_1ExportBridge();
@@ -320,23 +332,30 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.error(
                     "26.1 scene-linear HDR capture failed for frame " + frameId, e);
         }
-        /^?}^/
+        //?}
     }
 
-    /^? if >=26.2 {^/
-    /^private void ensureHdrTarget(int newWidth, int newHeight) {
-        if (hdrCopyTexture != null && hdrCopyTexture.getWidth(0) == newWidth
-                && hdrCopyTexture.getHeight(0) == newHeight) return;
-        closeHdrTarget();
+    //? if >=26.2 {
+    private void ensureHdrTarget(int newWidth, int newHeight) {
+        if (hdrCopyTexture != null && hdrWidth == newWidth && hdrHeight == newHeight) return;
+        flushHdr();
+        if (!closeHdrTarget()) {
+            throw new IllegalStateException("HDR10 resources are still in use");
+        }
         long size = (long) newWidth * newHeight * 8L;
+        hdrWidth = newWidth;
+        hdrHeight = newHeight;
         hdrCopyTexture = RenderSystem.getDevice().createTexture(
                 "Flashback Export Extras HDR10 colour transform",
                 GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC,
                 GpuFormat.RGBA16_UNORM, newWidth, newHeight, 1, 1);
         hdrCopyView = RenderSystem.getDevice().createTextureView(hdrCopyTexture);
-        hdrReadbackBuffer = RenderSystem.getDevice().createBuffer(
-                () -> "Flashback Export Extras HDR10 readback",
-                GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_MAP_READ, size);
+        for (int i = 0; i < BUFFER_COUNT; i++) {
+            hdrReadbackBuffers[i] = RenderSystem.getDevice().createBuffer(
+                    () -> "Flashback Export Extras HDR10 readback",
+                    GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_MAP_READ, size);
+            hdrReadbackFrameIds[i] = -1L;
+        }
         hdrUniformBuffer = RenderSystem.getDevice().createBuffer(
                 () -> "Flashback Export Extras HDR10 parameters",
                 GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_UNIFORM, 16L);
@@ -361,16 +380,117 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
                 .build();
     }
 
-    private void closeHdrTarget() {
+    private boolean closeHdrTarget() {
+        for (GpuFence fence : hdrReadbackFences) {
+            if (fence != null && !fence.awaitCompletion(0L)) return false;
+        }
         if (hdrUniformBuffer != null) hdrUniformBuffer.close();
-        if (hdrReadbackBuffer != null) hdrReadbackBuffer.close();
+        for (int i = 0; i < BUFFER_COUNT; i++) {
+            if (hdrReadbackFences[i] != null) hdrReadbackFences[i].close();
+            if (hdrReadbackBuffers[i] != null) hdrReadbackBuffers[i].close();
+            hdrReadbackFences[i] = null;
+            hdrReadbackBuffers[i] = null;
+            hdrReadbackFrameIds[i] = -1L;
+        }
         if (hdrCopyView != null) hdrCopyView.close();
         if (hdrCopyTexture != null) hdrCopyTexture.close();
         hdrUniformBuffer = null;
-        hdrReadbackBuffer = null;
         hdrCopyView = null;
         hdrCopyTexture = null;
         hdrCopyPipeline = null;
+        hdrWidth = hdrHeight = 0;
+        hdrWriteIndex = 0;
+        return true;
+    }
+
+    private void collectHdrReady(long timeoutNanos) {
+        for (int i = 0; i < BUFFER_COUNT; i++) {
+            if (hdrReadbackFences[i] != null) collectHdr(i, timeoutNanos);
+        }
+    }
+
+    private boolean collectHdr(int index, long timeoutNanos) {
+        GpuFence fence = hdrReadbackFences[index];
+        if (fence == null) return true;
+        if (!fence.awaitCompletion(timeoutNanos)) return false;
+        try (GpuBufferSlice.MappedView mapped = hdrReadbackBuffers[index].slice().map(true, false)) {
+            int expected = hdrWidth * hdrHeight * 8;
+            ByteBuffer source = mapped.data().duplicate().order(ByteOrder.LITTLE_ENDIAN);
+            source.rewind();
+            if (source.remaining() < expected) {
+                throw new IllegalStateException("HDR10 readback is too small: "
+                        + source.remaining() + " < " + expected);
+            }
+            source.limit(expected);
+            ByteBuffer result = MemoryUtil.memAlloc(expected);
+            try {
+                result.put(source);
+                result.rewind();
+                HdrVideoCaptureState.submit(hdrReadbackFrameIds[index], result);
+                result = null;
+            } finally {
+                if (result != null) MemoryUtil.memFree(result);
+            }
+        } finally {
+            fence.close();
+            hdrReadbackFences[index] = null;
+            hdrReadbackFrameIds[index] = -1L;
+        }
+        return true;
+    }
+
+    private void flushHdr() {
+        for (int i = 0; i < BUFFER_COUNT; i++) {
+            if (hdrReadbackFences[i] != null && !collectHdr(i, 1_000_000_000L)) {
+                throw new IllegalStateException("Timed out flushing HDR10 frame "
+                        + hdrReadbackFrameIds[i]);
+            }
+        }
+        if (hdrStagingWaitCount > 0L) {
+            com.rethinkqaq.flashbackexportextras.FlashbackExportExtras.LOGGER.info(
+                    "26.2 HDR10 async readback: staging waits={}, longest={} ms",
+                    hdrStagingWaitCount, hdrLongestWaitNanos / 1_000_000.0);
+        }
+    }
+
+    private void ensureDepthTarget(int newWidth, int newHeight) {
+        if (depthCopyTexture != null && depthCopyTexture.getWidth(0) == newWidth
+                && depthCopyTexture.getHeight(0) == newHeight) return;
+        closeDepthTarget();
+        depthCopyTexture = RenderSystem.getDevice().createTexture(
+                "Flashback Export Extras depth transform",
+                GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC,
+                GpuFormat.R32_FLOAT, newWidth, newHeight, 1, 1);
+        depthCopyView = RenderSystem.getDevice().createTextureView(depthCopyTexture);
+        depthUniformBuffer = RenderSystem.getDevice().createBuffer(
+                () -> "Flashback Export Extras depth parameters",
+                GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_UNIFORM, 16L);
+        depthCopyPipeline = RenderPipeline.builder()
+                .withLocation(ResourceLocation.fromNamespaceAndPath(
+                        "flashbackexportextras", "depth_copy_blaze"))
+                .withVertexShader(ResourceLocation.fromNamespaceAndPath(
+                        "flashbackexportextras", "core/flashbackexportextras_depth_copy"))
+                .withFragmentShader(ResourceLocation.fromNamespaceAndPath(
+                        "flashbackexportextras", "core/flashbackexportextras_depth_copy"))
+                .withBindGroupLayout(BindGroupLayout.builder()
+                        .withSampler("InDepth")
+                        .withUniform("DepthParameters", UniformType.UNIFORM_BUFFER)
+                        .build())
+                .withColorTargetState(new ColorTargetState(java.util.Optional.empty(),
+                        GpuFormat.R32_FLOAT, ColorTargetState.WRITE_ALL))
+                .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
+                .withCull(false)
+                .build();
+    }
+
+    private void closeDepthTarget() {
+        if (depthUniformBuffer != null) depthUniformBuffer.close();
+        if (depthCopyView != null) depthCopyView.close();
+        if (depthCopyTexture != null) depthCopyTexture.close();
+        depthUniformBuffer = null;
+        depthCopyView = null;
+        depthCopyTexture = null;
+        depthCopyPipeline = null;
     }
 
     private void ensureSceneLinearTarget(int newWidth, int newHeight) {
@@ -478,7 +598,7 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         sceneLinearWriteIndex = 0;
         return true;
     }
-    ^//^?}^/
+    //?}
     private boolean ensureDepthBuffers(int newWidth, int newHeight) {
         if (width == newWidth && height == newHeight && depthBuffers[0] != null) return true;
         if (!closeDepthBuffers()) {
@@ -503,11 +623,12 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         collectDepth(index, 0L);
     }
 
-    private void collectDepth(int index, long timeoutNanos) {
+    private boolean collectDepth(int index, long timeoutNanos) {
         GpuFence fence = depthFences[index];
-        if (fence == null || !fence.awaitCompletion(timeoutNanos)) return;
-        /^? if >=26.2 {^/
-        /^try (GpuBufferSlice.MappedView mapped = depthBuffers[index].slice().map(true, false)) {
+        if (fence == null) return true;
+        if (!fence.awaitCompletion(timeoutNanos)) return false;
+        //? if >=26.2 {
+        try (GpuBufferSlice.MappedView mapped = depthBuffers[index].slice().map(true, false)) {
             ByteBuffer data = mapped.data().duplicate();
             // GPU readback buffers use little-endian byte order. A duplicated
             // ByteBuffer defaults to BIG_ENDIAN in Java, corrupting every
@@ -516,40 +637,40 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             data.rewind();
             var copy = DepthCaptureState.acquireBuffer();
             java.nio.FloatBuffer source = data.asFloatBuffer();
-            for (int i = 0; i < source.remaining(); i++) {
-                float depth = source.get(i);
-                copy.put(depthReversed[index] ? normalizeDepth(depth) : depth);
-            }
+            copy.put(source);
             copy.rewind();
             logDepthReadback(source, copy, index);
-            DepthCaptureState.submit(new DepthCaptureState.DepthFrame(depthFrameIds[index], copy));
+            DepthCaptureState.submit(new DepthCaptureState.DepthFrame(depthFrameIds[index], copy,
+                    depthNear[index], depthFarValues[index], depthEncodings[index], depthSources[index]));
         } finally {
             fence.close();
             depthFences[index] = null;
+            depthFrameIds[index] = -1L;
+            depthEncodings[index] = null;
+            depthSources[index] = null;
         }
-        ^//^?} elif >=26.1 {^/
-        /^try (GpuBuffer.MappedView mapped = RenderSystem.getDevice().createCommandEncoder()
+        //?}
+        //? if <26.2 {
+        try (GpuBuffer.MappedView mapped = RenderSystem.getDevice().createCommandEncoder()
                 .mapBuffer(depthBuffers[index], true, false)) {
                 ByteBuffer data = mapped.data().duplicate().order(ByteOrder.LITTLE_ENDIAN);
                 data.rewind();
                 var copy = DepthCaptureState.acquireBuffer();
                 java.nio.FloatBuffer source = data.asFloatBuffer();
-                for (int i = 0; i < source.remaining(); i++) {
-                    float depth = source.get(i);
-                    copy.put(depthReversed[index] ? normalizeDepth(depth) : depth);
-                }
+                copy.put(source);
                 copy.rewind();
                 logDepthReadback(source, copy, index);
-                DepthCaptureState.submit(new DepthCaptureState.DepthFrame(depthFrameIds[index], copy));
+                DepthCaptureState.submit(new DepthCaptureState.DepthFrame(depthFrameIds[index], copy,
+                        depthNear[index], depthFarValues[index], depthEncodings[index], depthSources[index]));
         } finally {
             fence.close();
             depthFences[index] = null;
+            depthFrameIds[index] = -1L;
+            depthEncodings[index] = null;
+            depthSources[index] = null;
         }
-        ^//^?}^/
-    }
-
-    private float normalizeDepth(float depth) {
-        return 1.0f - depth;
+        //?}
+        return true;
     }
 
     private boolean closeDepthBuffers() {
@@ -564,21 +685,24 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
             depthFences[i] = null;
             depthBuffers[i] = null;
             depthFrameIds[i] = -1L;
-            depthReversed[i] = false;
+            depthNear[i] = 0.05f;
+            depthFarValues[i] = 0.0f;
+            depthEncodings[i] = null;
             depthSources[i] = null;
         }
         if (!pending) writeIndex = 0;
-        /^? if <26.2 {^/
-        /*if (!pending) pendingWorldDepthIndex = -1;
-        ^//^?}^/
         return !pending;
     }
 
     @Override public void endFrame() {
         collectDepth();
-        /^? if <26.2 {^/
-        /*if (hdrModBridge != null) hdrModBridge.collectReady();
-        ^//^?}^/
+        //? if >=26.2 {
+        collectHdrReady(0L);
+        collectSceneLinearReady(0L);
+        //?}
+        //? if <26.2 {
+        if (hdrModBridge != null) hdrModBridge.collectReady();
+        //?}
     }
 
     @Override
@@ -586,23 +710,26 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
         for (int i = 0; i < BUFFER_COUNT; i++) {
             if (depthFences[i] != null) collectDepth(i, 1_000_000_000L);
         }
-        /^? if >=26.2 {^/
-        /^flushSceneLinearHdr();
-        ^//^?}^/
-        /^? if <26.2 {^/
-        /*if (hdrModBridge != null) hdrModBridge.flush();
-        ^//^?}^/
+        //? if >=26.2 {
+        flushHdr();
+        flushSceneLinearHdr();
+        //?}
+        //? if <26.2 {
+        if (hdrModBridge != null) hdrModBridge.flush();
+        //?}
     }
     @Override public boolean releaseOnRenderThread() {
         if (!RenderSystem.isOnRenderThread()) return false;
         if (!closeDepthBuffers()) return false;
-        /^? if >=26.2 {^/
-        /^if (!closeSceneLinearTarget()) return false;
-        closeHdrTarget();
-        ^//^?} else {^/
+        //? if >=26.2 {
+        if (!closeSceneLinearTarget()) return false;
+        if (!closeHdrTarget()) return false;
+        closeDepthTarget();
+        //?}
+        //? if <26.2 {
         if (hdrModBridge != null && !hdrModBridge.release()) return false;
         hdrModBridge = null;
-        /^?}^/
+        //?}
         return true;
     }
 
@@ -651,4 +778,5 @@ public final class Blaze3dExportBackend implements GpuExportBackend {
                 converted.get(quarter), converted.get(center), converted.get(thirdQuarter));
     }
 }
-*///?}
+*/
+//?}

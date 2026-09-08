@@ -65,30 +65,14 @@ public class DepthCaptureState {
 
     private static final FrameIndexedQueue<DepthFrame> DEPTH_QUEUE = new FrameIndexedQueue<>(
             "depth", frame -> frame.frameId, frame -> releaseBuffer(frame.data));
-    /**
-     * The world-depth snapshot taken immediately before Minecraft clears the
-     * depth attachment for hand rendering. It is intentionally unnumbered:
-     * ExportJob assigns the output frame ID only when it starts downloading
-     * the corresponding color image.
-     */
-    private static FloatBuffer pendingWorldDepth;
     private static long nextExportFrameId;
 
-    /** Frame ID explicitly requested by ExportJob for the frame being rendered. */
-    public static volatile long requestedFrameId = -1L;
-
-    /**
-     * Set only when Iris' shaderpack pipeline actually rendered this frame.
-     * Installing Iris without enabling a shaderpack leaves this false.
-     */
-    public static volatile boolean irisShaderPackRenderedThisFrame = false;
+    /** Frame reserved before rendering and waiting for the world-depth clear hook. */
+    private static long pendingCaptureFrameId = -1L;
+    private static long submittedCaptureFrameId = -1L;
 
     public static void beginRenderFrame() {
-        irisShaderPackRenderedThisFrame = false;
-    }
-
-    public static void markIrisShaderPackRendered() {
-        if (active) irisShaderPackRenderedThisFrame = true;
+        IrisDepthCaptureState.beginRenderFrame();
     }
 
     // === Buffer pool for readback copies ===
@@ -123,21 +107,51 @@ public class DepthCaptureState {
         return nextExportFrameId++;
     }
 
-    /** Returns the export frame ID requested for the current render. */
-    public static synchronized long captureFrameId() {
-        return requestedFrameId;
+    /** Reserves the next frame before Flashback starts rendering it. */
+    public static synchronized long reserveExportFrameId() {
+        if (pendingCaptureFrameId >= 0L) {
+            throw new IllegalStateException("Depth capture frame " + pendingCaptureFrameId
+                    + " was not submitted before the next frame was reserved");
+        }
+        pendingCaptureFrameId = nextExportFrameId++;
+        submittedCaptureFrameId = -1L;
+        return pendingCaptureFrameId;
     }
 
-    public static synchronized void replacePendingWorldDepth(FloatBuffer data) {
-        FloatBuffer previous = pendingWorldDepth;
-        pendingWorldDepth = data;
-        if (previous != null) releaseBuffer(previous);
+    public static synchronized long pendingCaptureFrameId() {
+        return pendingCaptureFrameId;
     }
 
-    public static synchronized FloatBuffer takePendingWorldDepth() {
-        FloatBuffer data = pendingWorldDepth;
-        pendingWorldDepth = null;
-        return data;
+    public static synchronized void markCaptureSubmitted(long frameId) {
+        if (pendingCaptureFrameId != frameId) {
+            throw new IllegalStateException("Depth capture submitted for frame " + frameId
+                    + " while waiting for " + pendingCaptureFrameId);
+        }
+        pendingCaptureFrameId = -1L;
+        submittedCaptureFrameId = frameId;
+    }
+
+    public static synchronized boolean wasCaptureSubmitted(long frameId) {
+        return submittedCaptureFrameId == frameId;
+    }
+
+    public static synchronized long submittedCaptureFrameId() {
+        return submittedCaptureFrameId;
+    }
+
+    public static synchronized void failPendingCapture(Throwable failure) {
+        if (pendingCaptureFrameId >= 0L) {
+            DEPTH_QUEUE.fail(new IllegalStateException(
+                    "Depth capture was not submitted for frame " + pendingCaptureFrameId, failure));
+            pendingCaptureFrameId = -1L;
+            submittedCaptureFrameId = -1L;
+        }
+    }
+
+    public enum Encoding {
+        STANDARD_NDC,
+        REVERSED_NDC,
+        LINEAR_WORLD_METERS
     }
 
     public static final class DepthFrame {
@@ -145,16 +159,25 @@ public class DepthCaptureState {
         public final FloatBuffer data;
         public final float zNear;
         public final float zFar;
+        public final Encoding encoding;
+        public final String source;
 
         public DepthFrame(long frameId, FloatBuffer data) {
-            this(frameId, data, 0.05f, depthFar);
+            this(frameId, data, 0.05f, depthFar, Encoding.STANDARD_NDC, "unknown");
         }
 
         public DepthFrame(long frameId, FloatBuffer data, float zNear, float zFar) {
+            this(frameId, data, zNear, zFar, Encoding.STANDARD_NDC, "unknown");
+        }
+
+        public DepthFrame(long frameId, FloatBuffer data, float zNear, float zFar,
+                          Encoding encoding, String source) {
             this.frameId = frameId;
             this.data = data;
             this.zNear = zNear;
             this.zFar = zFar;
+            this.encoding = encoding == null ? Encoding.STANDARD_NDC : encoding;
+            this.source = source == null ? "unknown" : source;
         }
     }
 
@@ -184,14 +207,15 @@ public class DepthCaptureState {
         camYaw = camPitch = 0.0f;
         depthFar = 1000.0f;
         nextExportFrameId = 0;
-        requestedFrameId = -1L;
-        irisShaderPackRenderedThisFrame = false;
-
-        FloatBuffer pending = takePendingWorldDepth();
-        releaseBuffer(pending);
+        pendingCaptureFrameId = -1L;
+        submittedCaptureFrameId = -1L;
+        IrisDepthCaptureState.reset();
 
         DEPTH_QUEUE.reset();
         synchronized (bufferPool) {
+            // Buffers in this pool come from ByteBuffer.allocateDirect(), not
+            // MemoryUtil.memAlloc(). Their native storage is JVM-owned and
+            // must only be reclaimed by the DirectByteBuffer Cleaner.
             bufferPool.clear();
         }
 

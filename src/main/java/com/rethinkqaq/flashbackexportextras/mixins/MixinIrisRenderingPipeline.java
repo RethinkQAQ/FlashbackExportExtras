@@ -10,36 +10,39 @@
  * option) any later version.
  *
  * Flashback Export Extras is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser
- * General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License along
- * with Flashback Export Extras. If not, see <https://www.gnu.org/licenses/>.
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
+ * License for more details.
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 package com.rethinkqaq.flashbackexportextras.mixins;
 
-import com.rethinkqaq.flashbackexportextras.utils.Dummy;
-/*? if >=26.2 {*/
-/*import com.rethinkqaq.flashbackexportextras.exporting.DepthCaptureState;
+import com.rethinkqaq.flashbackexportextras.exporting.IrisDepthCaptureState;
+import me.fallenbreath.conditionalmixin.api.annotation.Condition;
+import me.fallenbreath.conditionalmixin.api.annotation.Restriction;
+import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-*//*?}*/
-import org.spongepowered.asm.mixin.Mixin;
 
-/*? if >=26.2 {*/
-/*@Mixin(targets = "net.irisshaders.iris.pipeline.IrisRenderingPipeline", remap = false)
-*//*?} else {*/
-@Mixin(Dummy.class)
-/*?}*/
+/** Optional Iris bridge. The mixin is only applied when Iris is loaded. */
+@Restriction(require = @Condition(
+        value = "iris",
+        //? if >=26.1 {
+        /*versionPredicates = ">=1.11 <1.12"
+        *//*?} elif >=1.21.11 {*/
+        /*versionPredicates = ">=1.10 <1.11"
+        *//*?} elif >=1.21.8 {*/
+        /*versionPredicates = ">=1.9 <1.10"
+        *//*?} else {*/
+        versionPredicates = ">=1.8 <1.9"
+        /*?}*/
+))
+@Mixin(targets = "net.irisshaders.iris.pipeline.IrisRenderingPipeline", remap = false)
 public final class MixinIrisRenderingPipeline {
-    /*? if >=26.2 {*/
-    /*@Inject(method = "beginLevelRendering", at = @At("HEAD"), remap = false)
-    private void flashbackexportextras$markShaderPackFrame(CallbackInfo ci) {
-        DepthCaptureState.markIrisShaderPackRendered();
+    @Inject(method = "beginLevelRendering", at = @At("HEAD"), remap = false)
+    private void flashbackexportextras$markShaderPackPipeline(CallbackInfo ci) {
+        IrisDepthCaptureState.markShaderPackPipelineActive();
     }
-    *//*?}*/
 }
